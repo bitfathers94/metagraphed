@@ -16,7 +16,7 @@ scale-value = "0.18"
 scale-info = "2.11"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7"
-futures = "0.3"
+futures = "0.3.32"
 hex = "0.4"
 anyhow = "1.0.103"
 blake2 = "0.10.6"      # extrinsic_hash = blake2_256(extrinsic bytes)
