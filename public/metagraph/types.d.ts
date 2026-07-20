@@ -334,7 +334,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus coldkey-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result. */
+        /** Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus account-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result. */
         get: operations["accountRootClaim"];
         put?: never;
         post?: never;
@@ -6590,7 +6590,7 @@ export interface components {
         ReviewQueueArtifact: components["schemas"]["CandidatesArtifact"];
         /** @enum {unknown} */
         ReviewState: "unreviewed" | "machine-generated" | "maintainer-reviewed" | "needs-review" | "stale";
-        /** @description Live root-claim current state for one coldkey (#7229, the read-only piece of the maintainer-only umbrella #7002), queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time and cached for 120s. Read-only display -- no claim execution. claim_type, hotkeys, and entries are each independently null on their own RPC/decode failure, distinct from a confirmed-empty result (a coldkey owning no hotkeys, or none with pending claims). total_claimable (sum of claimable) and total_claimed (sum of claimed, a u128 string) are null whenever entries is. */
+        /** @description Live root-claim current state for one coldkey (#7229, the read-only piece of the maintainer-only umbrella #7002), queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time and cached for 120s. Read-only display -- no claim execution. claim_type, hotkeys, and entries are each independently null on their own RPC/decode failure, distinct from a confirmed-empty result (an account owning no hotkeys, or none with pending claims). total_claimable (sum of claimable) and total_claimed (sum of claimed, a u128 string) are null whenever entries is. */
         RootClaimArtifact: {
             account: string;
             claim_type?: components["schemas"]["RootClaimType"] | null;
@@ -6605,7 +6605,7 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** @description One (hotkey, netuid) root-claim entry in a coldkey's live root-claim state (#7229): the currently-pending claimable root dividend for that hotkey on that subnet, the running cumulative already-claimed for the (netuid, hotkey, coldkey) triple, the subnet's dust-floor threshold, and whether the claimable amount clears that threshold. */
+        /** @description One (hotkey, netuid) root-claim entry in an account's live root-claim state (#7229): the currently-pending claimable root dividend for that hotkey on that subnet, the running cumulative already-claimed for the (netuid, hotkey, coldkey) triple, the subnet's dust-floor threshold, and whether the claimable amount clears that threshold. */
         RootClaimEntry: {
             actionable: boolean;
             claimable: number;
@@ -6614,7 +6614,7 @@ export interface components {
             netuid: number;
             threshold: number;
         };
-        /** @description A coldkey's per-coldkey root-claim behavior setting (RootClaimTypeEnum): swap (auto-convert claimed alpha to TAO, the default), keep (keep the alpha as-is), or keep_subnets (keep alpha for the listed subnets, swap the rest). */
+        /** @description An account's per-coldkey root-claim behavior setting (RootClaimTypeEnum): swap (auto-convert claimed alpha to TAO, the default), keep (keep the alpha as-is), or keep_subnets (keep alpha for the listed subnets, swap the rest). */
         RootClaimType: {
             subnets?: number[] | null;
             /** @enum {string} */

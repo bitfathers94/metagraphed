@@ -6600,7 +6600,7 @@ export const MCP_TOOLS = [
   },
   {
     name: "get_account_root_claim",
-    title: "Get a coldkey's live root-claim current state",
+    title: "Get an account's live root-claim current state",
     description:
       "Fetch one coldkey's current root-claim state (#7229, the read-only " +
       "piece of the maintainer-only umbrella #7002) -- its claim-behavior " +

@@ -1384,7 +1384,7 @@ export const PUBLIC_ARTIFACTS = [
   artifact(
     "account-root-claim",
     "/metagraph/accounts/{ss58}/root-claim.json",
-    "Live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed, and dust-floor threshold, plus coldkey-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
+    "Live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed, and dust-floor threshold, plus account-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
     "RootClaimArtifact",
   ),
   artifact(
@@ -3262,7 +3262,7 @@ export const API_ROUTES = [
     "GET",
     "/api/v1/accounts/{ss58}/root-claim",
     "/metagraph/accounts/{ss58}/root-claim.json",
-    "Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus coldkey-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
+    "Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus account-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
     "short",
     ["accounts"],
     [],

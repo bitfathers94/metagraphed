@@ -276,7 +276,7 @@ export const ACCOUNT_CHILDREN_PATH_PATTERN =
 export const ACCOUNT_PARENTS_PATH_PATTERN =
   /^\/api\/v1\/accounts\/([1-9A-HJ-NP-Za-km-z]{47,48})\/parents$/;
 // Live root-claim current state (#7229, the read-only piece of the maintainer-
-// only umbrella #7002): one coldkey's claimable root dividends, claim-behavior
+// only umbrella #7002): one account's claimable root dividends, claim-behavior
 // setting, and cumulative already-claimed — queried from the chain's own
 // RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed
 // storage at request time, no static file. Mirrors ACCOUNT_CHILDREN_PATH_PATTERN.

@@ -7434,7 +7434,7 @@
     {
       "artifact_path": "/metagraph/accounts/{ss58}/root-claim.json",
       "cache": "short",
-      "description": "Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus coldkey-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
+      "description": "Fetch the live root-claim current state for one coldkey (#7229, the read-only piece of umbrella #7002) — its claim-behavior setting (claim_type), owned hotkeys, and per (hotkey, netuid) currently-claimable root dividend, cumulative already-claimed (u128 string), and dust-floor threshold, plus account-level aggregates, queried from the chain's own RootClaimType/OwnedHotkeys/RootClaimable/RootClaimableThreshold/RootClaimed storage at request time with 120s KV cache. Read-only display, no claim execution. claim_type/hotkeys/entries are each null on RPC failure, distinct from a confirmed empty result.",
       "id": "account-root-claim",
       "method": "GET",
       "path": "/api/v1/accounts/{ss58}/root-claim",

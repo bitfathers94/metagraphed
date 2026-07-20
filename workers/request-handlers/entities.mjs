@@ -3928,10 +3928,10 @@ export async function handleAccountParents(request, env, ss58) {
 }
 
 // GET /api/v1/accounts/{ss58}/root-claim (#7229, the read-only piece split out
-// of the maintainer-only umbrella #7002): one coldkey's current root-claim
+// of the maintainer-only umbrella #7002): one account's current root-claim
 // state — its claim-behavior setting, owned hotkeys, per (hotkey, netuid)
 // currently-claimable dividend + cumulative already-claimed + dust-floor
-// threshold, and coldkey-level aggregates. Live RPC + KV-cache route, same
+// threshold, and account-level aggregates. Live RPC + KV-cache route, same
 // shape as handleAccountChildren just above — see src/root-claim.mjs's header
 // for the on-chain storage details. Read-only display: no claim execution.
 export async function handleAccountRootClaim(request, env, ss58) {
