@@ -15,6 +15,12 @@ import { loadSourceSnapshotsList } from "./source-snapshots-mcp.mjs";
 // unchanged (same artifact read, filter, sort, and page logic REST and MCP
 // already use) -- not a reimplementation.
 import { loadProfilesList } from "./profiles-mcp.mjs";
+// #7171: GraphQL parity for the global interface-gap report and public evidence
+// ledger, reusing list_gaps'/list_evidence' own loaders unchanged (same artifact
+// read, filter, sort, and page logic REST and MCP already use) -- not a
+// reimplementation.
+import { loadGapsList } from "./gaps-mcp.mjs";
+import { loadEvidenceList } from "./evidence-mcp.mjs";
 import { contractVersion } from "../workers/responses.mjs";
 import { tryPostgresTier } from "../workers/postgres-tier.mjs";
 // #6985: GraphQL parity for the endpoint-pools/rpc-pools/endpoint-incidents REST
@@ -471,6 +477,10 @@ export const SDL = `
     endpoint_incidents(netuid: Int, kind: String, provider: String, status: String, severity: String, state: String, sort: String, order: String, fields: String, limit: Int, cursor: Int): IncidentList!
     "Per-source input-hash ledger -- each registry data source's captured input hash and record count at ingest time, for detecting hash drift or seeing per-source contribution volume. Filter with q (keyword search across id/kind/path), sort with sort/order, and page with limit (1-100)/cursor. An invalid sort/limit/cursor is a GraphQL error, not a silently substituted default. Mirrors GET /api/v1/source-snapshots."
     source_snapshots(q: String, sort: String, order: String, fields: String, limit: Int, cursor: Int): SourceSnapshotList!
+    "Global registry-wide interface-gap report -- every active subnet's missing/unsupported public interface facets, gap_count, coverage_level, and curation_level. Filter by netuid/coverage_level/curation_level, sort with sort/order, and page with limit (1-100)/cursor. An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default. Distinct from subnet_gaps(netuid) (one subnet's enrichment queue). Mirrors GET /api/v1/gaps."
+    gaps(netuid: Int, coverage_level: String, curation_level: String, sort: String, order: String, fields: String, limit: Int, cursor: Int): GapList!
+    "Network-wide public evidence ledger -- the append-only record of provenance and verification evidence behind registry surfaces. Search with q across subject/claim/source_url/support_summary, sort with sort/order, and page with limit (1-100)/cursor. An invalid sort/limit/cursor is a GraphQL error, not a silently substituted default. Distinct from subnet_evidence(netuid) (one subnet's claims). Mirrors GET /api/v1/evidence."
+    evidence(q: String, sort: String, order: String, fields: String, limit: Int, cursor: Int): EvidenceList!
     "Public-safe subnet profile index -- completeness scores, surface/interface counts, curation level, review state, and confidence for every registered subnet. Filter by netuid/subnet_type/curation_level/review_state/confidence/profile_level, search name/slug/project/team/categories with q, sort with sort/order, and page with limit (1-1000)/cursor. An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default. Mirrors GET /api/v1/profiles."
     profiles(netuid: Int, subnet_type: String, curation_level: String, review_state: String, confidence: String, profile_level: String, q: String, sort: String, order: String, fields: String, limit: Int, cursor: Int): ProfileList!
     "Global operational health rollup with per-subnet summaries."
@@ -481,6 +491,8 @@ export const SDL = `
     compare(netuids: [Int!]!, dimensions: [String!]): Compare!
     "Global endpoint-incident ledger over a 7d/30d window; degrades to a schema-stable empty ledger (never a GraphQL error) on a cold/retired health tier. Mirrors GET /api/v1/incidents."
     incidents(window: String): GlobalIncidents!
+    "Paginated all-events feed (newest first) from the Postgres-backed all-events tier: every on-chain event with its pallet/method/block/event index, phase, extrinsic index, decoded args, and observed_at. Narrow by pallet/method (method requires pallet unless block is set), scope to one block (+ optional extrinsic), and page with the lossless observed_at.block_number.event_index cursor or the legacy block-only before, limit caps the page (<=200). An invalid block/extrinsic/before/limit is a GraphQL error; an upstream rejection maps to BAD_USER_INPUT (400) or DATA_TIER_UNAVAILABLE. Distinct from Subscription.chainEvents (the live WebSocket firehose). Mirrors GET /api/v1/chain-events."
+    chain_events(pallet: String, method: String, block: Int, extrinsic: Int, cursor: String, before: Int, limit: Int): ChainEventList!
     "Recent-extrinsic feed (newest first), optionally filtered. Mirrors GET /api/v1/extrinsics."
     extrinsics(limit: Int, offset: Int, cursor: String, block: Int, signer: String, call_module: String, call_function: String, success: Boolean): ExtrinsicList!
     "One extrinsic by hash or composite block_number-extrinsic_index ref; extrinsic is null when the ref doesn't resolve (schema-stable, never a GraphQL error). Mirrors GET /api/v1/extrinsics/{ref}."
@@ -1729,6 +1741,40 @@ export const SDL = `
     next_cursor: Int
     sort: String
     order: String
+  }
+
+  type GapList {
+    generated_at: String
+    notes: String
+    gaps: [JSON!]!
+    total: Int!
+    returned: Int!
+    limit: Int!
+    cursor: Int!
+    next_cursor: Int
+    sort: String
+    order: String
+  }
+
+  type EvidenceList {
+    generated_at: String
+    schema_version: String
+    summary: JSON
+    claims: [JSON!]!
+    total: Int!
+    returned: Int!
+    limit: Int!
+    cursor: Int!
+    next_cursor: Int
+    sort: String
+    order: String
+  }
+
+  type ChainEventList {
+    count: Int!
+    events: [JSON!]!
+    next_cursor: String
+    next_before: Int
   }
 
   type ProfileList {
@@ -3478,6 +3524,9 @@ export const FIELD_COMPLEXITY = {
   rpc_pools: RELATIONSHIP_FIELD_COMPLEXITY,
   endpoint_incidents: RELATIONSHIP_FIELD_COMPLEXITY,
   source_snapshots: RELATIONSHIP_FIELD_COMPLEXITY,
+  gaps: RELATIONSHIP_FIELD_COMPLEXITY,
+  evidence: RELATIONSHIP_FIELD_COMPLEXITY,
+  chain_events: RELATIONSHIP_FIELD_COMPLEXITY,
   profiles: RELATIONSHIP_FIELD_COMPLEXITY,
   health: RELATIONSHIP_FIELD_COMPLEXITY,
   opportunity_boards: RELATIONSHIP_FIELD_COMPLEXITY,
@@ -5014,6 +5063,21 @@ const rootValue = {
     return loadSourceSnapshotsList(context, args, { readArtifact });
   },
 
+  // #7171: reuse list_gaps'/list_evidence' own loaders unchanged, exactly like
+  // source_snapshots above. Each validates its own args and throws a toolError
+  // on an invalid one -- that throw (inside the returned promise) surfaces as a
+  // normal GraphQL error, matching every other list field's "an unsupported
+  // filter/sort is a GraphQL error, not a silently substituted default"
+  // convention. Both are the global report distinct from the per-subnet
+  // subnet_gaps/subnet_evidence fields.
+  gaps(args, context) {
+    return loadGapsList(context, args, { readArtifact });
+  },
+
+  evidence(args, context) {
+    return loadEvidenceList(context, args, { readArtifact });
+  },
+
   // #6992: reuse list_profiles' own loader unchanged. Its readOptionalArtifact
   // dep is called as (ctx, path) and expects data-or-null on a cold artifact
   // (not a throw) -- this file's own loadArtifact(context, path) already has
@@ -5458,6 +5522,81 @@ const rootValue = {
       observed_at: data.observed_at ?? null,
       source: data.source ?? null,
       surfaces: data.surfaces ?? [],
+    };
+  },
+
+  // #7171: the all-events feed has no D1 predecessor and thus no
+  // tryPostgresTier flag -- it is a pure DATA_API proxy (workers/api.mjs
+  // handleChainEventsProxy), so this resolver mirrors that proxy's direct
+  // fetch + error mapping rather than the tryPostgresTier(...) ?? D1-fallback
+  // shape the extrinsics/blocks feeds use. mcp-server's loadChainEventsFeed is
+  // deliberately NOT reused: it reads ctx.clientIp/DATA_RATE_LIMITER, which the
+  // GraphQL context ({env, cache, request}) does not carry.
+  async chain_events(
+    { pallet, method, block, extrinsic, cursor, before, limit },
+    context,
+  ) {
+    // The GraphQL Int scalar already guarantees each of these is an integer, so
+    // only the sign needs guarding before the params reach the all-events tier.
+    for (const [name, value] of [
+      ["block", block],
+      ["extrinsic", extrinsic],
+      ["before", before],
+      ["limit", limit],
+    ]) {
+      if (value != null && value < 0) {
+        throw new GraphQLError(`${name} must be a non-negative integer.`, {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+    }
+    if (!context.env.DATA_API) {
+      throw new GraphQLError(
+        "The all-events data tier is not bound to this deployment.",
+        { extensions: { code: "DATA_TIER_UNAVAILABLE" } },
+      );
+    }
+    const params = new URLSearchParams();
+    if (pallet) params.set("pallet", pallet);
+    if (method) params.set("method", method);
+    if (block != null) params.set("block", String(block));
+    if (extrinsic != null) params.set("extrinsic", String(extrinsic));
+    if (cursor) params.set("cursor", cursor);
+    if (before != null) params.set("before", String(before));
+    if (limit != null) params.set("limit", String(limit));
+    const upstream = await context.env.DATA_API.fetch(
+      postgresTierRequest(context, "/api/v1/chain-events", params),
+    );
+    let body;
+    try {
+      body = await upstream.json();
+    } catch {
+      throw new GraphQLError(
+        "The all-events data tier returned an unreadable response.",
+        { extensions: { code: "DATA_TIER_UNAVAILABLE" } },
+      );
+    }
+    if (!upstream.ok) {
+      throw new GraphQLError(
+        typeof body?.error === "string"
+          ? body.error
+          : "The all-events data tier returned an error.",
+        {
+          extensions: {
+            code:
+              upstream.status === 400
+                ? "BAD_USER_INPUT"
+                : "DATA_TIER_UNAVAILABLE",
+          },
+        },
+      );
+    }
+    const events = Array.isArray(body?.events) ? body.events : [];
+    return {
+      count: Number.isInteger(body?.count) ? body.count : events.length,
+      events,
+      next_cursor: body?.next_cursor ?? null,
+      next_before: body?.next_before ?? null,
     };
   },
 

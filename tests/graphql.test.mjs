@@ -1575,6 +1575,324 @@ describe("graphql — source_snapshots", () => {
   });
 });
 
+// #7171: GraphQL parity for the global interface-gap report, reusing list_gaps'
+// own loader unchanged (same filter/sort/page + error behavior as REST and MCP)
+// rather than a GraphQL-only reimplementation. Distinct from the per-subnet
+// subnet_gaps field.
+describe("graphql — gaps", () => {
+  const GAPS_BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: "registry-wide interface gap report",
+    gaps: [
+      {
+        netuid: 7,
+        name: "Allways",
+        gap_count: 3,
+        coverage_level: "manifested",
+        curation_level: "machine-verified",
+        missing: ["schema"],
+      },
+      {
+        netuid: 1,
+        name: "Alpha",
+        gap_count: 1,
+        coverage_level: "native-only",
+        curation_level: "community",
+        missing: ["openapi"],
+      },
+    ],
+  };
+
+  test("sorts by gap_count and exposes generated_at/notes", async () => {
+    const env = fixtureEnv({ "/metagraph/gaps.json": GAPS_BLOB });
+    const { status, body } = await gql(
+      '{ gaps(sort: "gap_count", order: "desc") { gaps total generated_at notes } }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.data.gaps.total, 2);
+    assert.equal(body.data.gaps.gaps[0].netuid, 7);
+    assert.equal(body.data.gaps.generated_at, "2026-07-01T00:00:00.000Z");
+    assert.equal(body.data.gaps.notes, "registry-wide interface gap report");
+  });
+
+  test("filters by netuid and paginates", async () => {
+    const env = fixtureEnv({ "/metagraph/gaps.json": GAPS_BLOB });
+    const filtered = await gql("{ gaps(netuid: 7) { gaps total } }", env);
+    assert.equal(filtered.body.data.gaps.total, 1);
+    assert.equal(filtered.body.data.gaps.gaps[0].netuid, 7);
+
+    const paged = await gql(
+      "{ gaps(limit: 1) { gaps total returned next_cursor } }",
+      env,
+    );
+    assert.equal(paged.body.data.gaps.gaps.length, 1);
+    assert.equal(paged.body.data.gaps.total, 2);
+    assert.equal(paged.body.data.gaps.returned, 1);
+    assert.ok(paged.body.data.gaps.next_cursor != null);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error, not a silent default", async () => {
+    const env = fixtureEnv({ "/metagraph/gaps.json": GAPS_BLOB });
+    const { body } = await gql('{ gaps(sort: "bogus") { total } }', env);
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error, matching REST/MCP", async () => {
+    const { body } = await gql("{ gaps { total } }", emptyEnv);
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(FIELD_COMPLEXITY.gaps, 5);
+  });
+});
+
+// #7171: GraphQL parity for the network-wide evidence ledger, reusing
+// list_evidence' own loader unchanged (same search/sort/page + error behavior as
+// REST and MCP). Distinct from the per-subnet subnet_evidence field.
+describe("graphql — evidence", () => {
+  const EVIDENCE_BLOB = {
+    generated_at: "2026-07-02T00:00:00.000Z",
+    schema_version: 2,
+    summary: { claim_count: 2 },
+    claims: [
+      {
+        subject: "sn7",
+        claim: "publishes openapi",
+        source_url: "https://allways.example/openapi.json",
+        support_summary: "verified via probe",
+        verified_at: "2026-06-01T00:00:00.000Z",
+      },
+      {
+        subject: "sn1",
+        claim: "chain metrics feed",
+        source_url: "https://alpha.example/feed",
+        support_summary: "checked",
+        verified_at: "2026-05-01T00:00:00.000Z",
+      },
+    ],
+  };
+
+  test("searches with q and exposes summary/schema_version", async () => {
+    const env = fixtureEnv({
+      "/metagraph/evidence-ledger.json": EVIDENCE_BLOB,
+    });
+    const { status, body } = await gql(
+      '{ evidence(q: "chain") { claims total summary schema_version generated_at } }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.data.evidence.total, 1);
+    assert.equal(body.data.evidence.claims[0].subject, "sn1");
+    assert.equal(body.data.evidence.summary.claim_count, 2);
+    assert.equal(body.data.evidence.schema_version, "2");
+    assert.equal(body.data.evidence.generated_at, "2026-07-02T00:00:00.000Z");
+  });
+
+  test("sorts by subject and paginates", async () => {
+    const env = fixtureEnv({
+      "/metagraph/evidence-ledger.json": EVIDENCE_BLOB,
+    });
+    const paged = await gql(
+      '{ evidence(sort: "subject", order: "desc", limit: 1) { claims total returned next_cursor } }',
+      env,
+    );
+    assert.equal(paged.body.data.evidence.claims.length, 1);
+    assert.equal(paged.body.data.evidence.claims[0].subject, "sn7");
+    assert.equal(paged.body.data.evidence.total, 2);
+    assert.equal(paged.body.data.evidence.returned, 1);
+    assert.ok(paged.body.data.evidence.next_cursor != null);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error, not a silent default", async () => {
+    const env = fixtureEnv({
+      "/metagraph/evidence-ledger.json": EVIDENCE_BLOB,
+    });
+    const { body } = await gql('{ evidence(sort: "bogus") { total } }', env);
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error, matching REST/MCP", async () => {
+    const { body } = await gql("{ evidence { total } }", emptyEnv);
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(FIELD_COMPLEXITY.evidence, 5);
+  });
+});
+
+// #7171: GraphQL parity for the paginated all-events feed. Unlike the D1-backed
+// extrinsics/blocks feeds, the all-events tier has no D1 predecessor and thus no
+// tryPostgresTier flag -- the resolver mirrors workers/api.mjs
+// handleChainEventsProxy's direct DATA_API fetch + error mapping. Distinct from
+// the Subscription.chainEvents live firehose.
+describe("graphql — chain_events (#7171, all-events tier)", () => {
+  const EVENT_ROW = {
+    block_number: 5,
+    event_index: 0,
+    pallet: "SubtensorModule",
+    method: "NeuronRegistered",
+    phase: "ApplyExtrinsic",
+    extrinsic_index: 2,
+    args: { netuid: 7 },
+    observed_at: "2026-07-14T00:00:00.000Z",
+  };
+
+  test("an unbound all-events tier is a DATA_TIER_UNAVAILABLE GraphQL error", async () => {
+    const { status, body } = await gql("{ chain_events { count } }", emptyEnv);
+    assert.equal(status, 200);
+    assert.ok(
+      body.errors.find((e) => e.extensions?.code === "DATA_TIER_UNAVAILABLE"),
+    );
+    assert.equal(body.data, null);
+  });
+
+  test("resolves DATA_API rows and cursors, exposing decoded args", async () => {
+    const env = {
+      DATA_API: {
+        fetch: async () =>
+          Response.json({
+            count: 1,
+            events: [EVENT_ROW],
+            next_cursor: "5.5.0",
+            next_before: 5,
+          }),
+      },
+    };
+    const { status, body } = await gql(
+      "{ chain_events { count events next_cursor next_before } }",
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.data.chain_events.count, 1);
+    assert.equal(body.data.chain_events.next_cursor, "5.5.0");
+    assert.equal(body.data.chain_events.next_before, 5);
+    const event = body.data.chain_events.events[0];
+    assert.equal(event.pallet, "SubtensorModule");
+    assert.equal(event.method, "NeuronRegistered");
+    assert.deepEqual(event.args, { netuid: 7 });
+  });
+
+  test("a body missing count/events/cursors degrades to a schema-stable zero page", async () => {
+    const env = { DATA_API: { fetch: async () => Response.json({}) } };
+    const { status, body } = await gql(
+      "{ chain_events { count events next_cursor next_before } }",
+      env,
+    );
+    assert.equal(status, 200);
+    assert.deepEqual(body.data.chain_events, {
+      count: 0,
+      events: [],
+      next_cursor: null,
+      next_before: null,
+    });
+  });
+
+  test("forwards filter/pagination args as query params to the all-events tier", async () => {
+    let capturedUrl;
+    const env = {
+      DATA_API: {
+        fetch: async (req) => {
+          capturedUrl = new URL(req.url);
+          return Response.json({ count: 0, events: [] });
+        },
+      },
+    };
+    await gql(
+      `{ chain_events(pallet: "SubtensorModule", method: "NeuronRegistered", block: 5, extrinsic: 2, cursor: "5.5.0", before: 100, limit: 25) { count } }`,
+      env,
+    );
+    assert.equal(capturedUrl.pathname, "/api/v1/chain-events");
+    assert.equal(capturedUrl.searchParams.get("pallet"), "SubtensorModule");
+    assert.equal(capturedUrl.searchParams.get("method"), "NeuronRegistered");
+    assert.equal(capturedUrl.searchParams.get("block"), "5");
+    assert.equal(capturedUrl.searchParams.get("extrinsic"), "2");
+    assert.equal(capturedUrl.searchParams.get("cursor"), "5.5.0");
+    assert.equal(capturedUrl.searchParams.get("before"), "100");
+    assert.equal(capturedUrl.searchParams.get("limit"), "25");
+  });
+
+  test("a negative block filter is BAD_USER_INPUT and never reaches the tier", async () => {
+    let called = false;
+    const env = {
+      DATA_API: {
+        fetch: async () => {
+          called = true;
+          return Response.json({ count: 0, events: [] });
+        },
+      },
+    };
+    const { status, body } = await gql(
+      "{ chain_events(block: -1) { count } }",
+      env,
+    );
+    assert.equal(status, 200);
+    assert.ok(body.errors.find((e) => e.extensions?.code === "BAD_USER_INPUT"));
+    assert.equal(body.data, null);
+    assert.equal(called, false);
+  });
+
+  test("maps an upstream 400 to BAD_USER_INPUT, surfacing its message", async () => {
+    const env = {
+      DATA_API: {
+        fetch: async () =>
+          Response.json(
+            { error: "method requires pallet unless block is set" },
+            { status: 400 },
+          ),
+      },
+    };
+    const { status, body } = await gql(
+      '{ chain_events(method: "NeuronRegistered") { count } }',
+      env,
+    );
+    assert.equal(status, 200);
+    const err = body.errors.find(
+      (e) => e.extensions?.code === "BAD_USER_INPUT",
+    );
+    assert.ok(err);
+    assert.match(err.message, /method requires pallet/);
+    assert.equal(body.data, null);
+  });
+
+  test("maps a non-400 upstream error to DATA_TIER_UNAVAILABLE", async () => {
+    const env = {
+      DATA_API: {
+        fetch: async () => Response.json({}, { status: 500 }),
+      },
+    };
+    const { status, body } = await gql("{ chain_events { count } }", env);
+    assert.equal(status, 200);
+    assert.ok(
+      body.errors.find((e) => e.extensions?.code === "DATA_TIER_UNAVAILABLE"),
+    );
+    assert.equal(body.data, null);
+  });
+
+  test("an unreadable upstream body is a DATA_TIER_UNAVAILABLE GraphQL error", async () => {
+    const env = {
+      DATA_API: {
+        fetch: async () =>
+          new Response("<html>not json</html>", { status: 200 }),
+      },
+    };
+    const { status, body } = await gql("{ chain_events { count } }", env);
+    assert.equal(status, 200);
+    assert.ok(
+      body.errors.find((e) => e.extensions?.code === "DATA_TIER_UNAVAILABLE"),
+    );
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(FIELD_COMPLEXITY.chain_events, 5);
+  });
+});
+
 // #6992: GraphQL parity for profiles, reusing list_profiles' own loader
 // unchanged (same filter/sort/page + error behavior as REST and MCP) rather
 // than a GraphQL-only reimplementation.
