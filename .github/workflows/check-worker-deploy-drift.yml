@@ -60,3 +60,9 @@ jobs:
           MAIN_HEAD_SHA: ${{ steps.main-head.outputs.sha }}
           MAIN_HEAD_COMMITTED_AT: ${{ steps.main-head.outputs.committed_at }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fallback deploy-commit signal (issue #7214) when Cloudflare's
+          # Deployments API drops the workers/commit_hash annotation -- same
+          # SENTRY_AUTH_TOKEN secret ui-sentry-release.yml uses, same org/project.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: jsonbored
+          SENTRY_PROJECT: metagraphed

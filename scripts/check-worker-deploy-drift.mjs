@@ -12,6 +12,17 @@ import { fileURLToPath } from "node:url";
 const DEPLOYMENTS_PATH_TEMPLATE =
   "https://api.cloudflare.com/client/v4/accounts/{accountId}/workers/scripts/{scriptName}/deployments";
 
+// Sentry Releases API for the deployed-commit fallback (issue #7214), using the
+// same SENTRY_AUTH_TOKEN secret ui-sentry-release.yml already relies on and its
+// jsonbored/metagraphed org/project.
+const SENTRY_RELEASES_PATH_TEMPLATE =
+  "{baseUrl}/api/0/projects/{org}/{project}/releases/?per_page=100";
+
+// A real deployed release is a bare 40-hex commit SHA (WORKERS_CI_COMMIT_SHA /
+// $GITHUB_SHA); PR preview releases are the same SHA with a `-preview` suffix, so
+// this shape excludes them without a separate check.
+const BARE_COMMIT_SHA_RE = /^[0-9a-f]{40}$/;
+
 export function extractDeployedCommitSha(deploymentsJson) {
   const deployments = deploymentsJson?.result?.deployments;
   if (!Array.isArray(deployments) || deployments.length === 0) {
@@ -27,6 +38,32 @@ export function extractDeployedCommitSha(deploymentsJson) {
     );
   }
   return commitSha;
+}
+
+// Fallback deploy-commit signal (issue #7214): Cloudflare's Deployments API has
+// stopped populating the workers/commit_hash annotation even though Workers Builds
+// is genuinely deploying on every push, so extractDeployedCommitSha throws and the
+// drift check fails every scheduled run. Sentry's release tags reliably carry the
+// real deployed git SHA (via @sentry/cloudflare's withSentry(), see
+// workers/api.sentry.mjs), so when the Cloudflare annotation is missing we take the
+// most recently-created release whose version is a bare 40-hex commit SHA and use
+// it as the deployed-commit signal instead. This doesn't fix the underlying
+// Cloudflare annotation gap (a dashboard-side git-integration question), only makes
+// this check resilient to it.
+export function extractDeployedCommitShaFromReleases(releasesJson) {
+  const releases = Array.isArray(releasesJson) ? releasesJson : [];
+  const commitReleases = releases
+    .filter((release) => BARE_COMMIT_SHA_RE.test(release?.version ?? ""))
+    .sort(
+      (a, b) =>
+        new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime(),
+    );
+  if (commitReleases.length === 0) {
+    throw new Error(
+      "Sentry returned no release whose version is a bare 40-hex commit SHA -- cannot use it as a deploy-drift fallback signal",
+    );
+  }
+  return commitReleases[0].version;
 }
 
 export function findPreviousScheduledRunAt(runsJson, currentRunId) {
@@ -135,9 +172,46 @@ async function main() {
   let deployedCommitSha;
   try {
     deployedCommitSha = extractDeployedCommitSha(await deploymentsRes.json());
-  } catch (error) {
-    console.error(`::error::${error.message}`);
-    return 1;
+  } catch (cloudflareError) {
+    const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
+    if (!sentryAuthToken) {
+      console.error(`::error::${cloudflareError.message}`);
+      return 1;
+    }
+    const sentryOrg = process.env.SENTRY_ORG || "jsonbored";
+    const sentryProject = process.env.SENTRY_PROJECT || "metagraphed";
+    const sentryBaseUrl = process.env.SENTRY_BASE_URL || "https://sentry.io";
+    const releasesUrl = SENTRY_RELEASES_PATH_TEMPLATE.replace(
+      "{baseUrl}",
+      sentryBaseUrl,
+    )
+      .replace("{org}", sentryOrg)
+      .replace("{project}", sentryProject);
+    const releasesRes = await fetch(releasesUrl, {
+      headers: {
+        Authorization: `Bearer ${sentryAuthToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!releasesRes.ok) {
+      console.error(
+        `::error::${cloudflareError.message}; Sentry releases fallback also failed -- Sentry API returned HTTP ${releasesRes.status}: ${await releasesRes.text()}`,
+      );
+      return 1;
+    }
+    try {
+      deployedCommitSha = extractDeployedCommitShaFromReleases(
+        await releasesRes.json(),
+      );
+    } catch (sentryError) {
+      console.error(
+        `::error::${cloudflareError.message}; ${sentryError.message}`,
+      );
+      return 1;
+    }
+    console.log(
+      `::notice::Cloudflare workers/commit_hash annotation missing -- falling back to Sentry release ${deployedCommitSha} as the deployed-commit signal.`,
+    );
   }
 
   let previousScheduledRunAt = null;

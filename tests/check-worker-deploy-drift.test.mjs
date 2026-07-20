@@ -3,8 +3,12 @@ import { describe, test } from "vitest";
 import {
   evaluateDeployDrift,
   extractDeployedCommitSha,
+  extractDeployedCommitShaFromReleases,
   findPreviousScheduledRunAt,
 } from "../scripts/check-worker-deploy-drift.mjs";
+
+const SHA_A = "a".repeat(40);
+const SHA_B = "b".repeat(40);
 
 describe("extractDeployedCommitSha", () => {
   test("reads the commit hash annotation off the active (first) deployment", () => {
@@ -33,6 +37,43 @@ describe("extractDeployedCommitSha", () => {
           result: { deployments: [{ id: "dep-1", annotations: {} }] },
         }),
       /no workers\/commit_hash annotation/,
+    );
+  });
+});
+
+describe("extractDeployedCommitShaFromReleases", () => {
+  test("returns the most recently-created bare-SHA release version", () => {
+    const sha = extractDeployedCommitShaFromReleases([
+      { version: SHA_A, dateCreated: "2026-07-18T09:00:00Z" },
+      { version: SHA_B, dateCreated: "2026-07-20T09:00:00Z" },
+    ]);
+    assert.equal(sha, SHA_B);
+  });
+
+  test("ignores non-SHA and -preview-suffixed releases", () => {
+    const sha = extractDeployedCommitShaFromReleases([
+      { version: `${SHA_B}-preview`, dateCreated: "2026-07-21T09:00:00Z" },
+      { version: "v1.2.3", dateCreated: "2026-07-20T12:00:00Z" },
+      { version: SHA_A, dateCreated: "2026-07-19T09:00:00Z" },
+    ]);
+    assert.equal(sha, SHA_A);
+  });
+
+  test("throws when no release is a bare commit SHA", () => {
+    assert.throws(
+      () =>
+        extractDeployedCommitShaFromReleases([
+          { version: "v2.0.0", dateCreated: "2026-07-20T09:00:00Z" },
+          { version: `${SHA_A}-preview`, dateCreated: "2026-07-20T09:00:00Z" },
+        ]),
+      /no release whose version is a bare 40-hex commit SHA/,
+    );
+  });
+
+  test("tolerates a non-array payload", () => {
+    assert.throws(
+      () => extractDeployedCommitShaFromReleases(null),
+      /no release whose version is a bare 40-hex commit SHA/,
     );
   });
 });
