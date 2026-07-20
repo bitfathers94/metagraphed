@@ -18580,6 +18580,419 @@ describe("graphql — evidence", () => {
   });
 });
 
+// #7167: GraphQL parity for the /api/v1/review/* contributor-review family,
+// each reusing its route's existing MCP list loader unchanged.
+describe("graphql — review_adapter_candidates (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: ["adapter shortlist"],
+    candidates: [
+      {
+        netuid: 7,
+        name: "Allways",
+        priority_score: 88,
+        curation_level: "candidate-discovered",
+        operational_kinds: ["openapi"],
+        recommended_adapter_kind: "generic-openapi-or-custom",
+      },
+      {
+        netuid: 12,
+        name: "Compute",
+        priority_score: 72,
+        curation_level: "maintainer-reviewed",
+        operational_kinds: ["website"],
+        recommended_adapter_kind: "custom-adapter",
+      },
+    ],
+  };
+  const path = "/metagraph/review/adapter-candidates.json";
+
+  test("filters by netuid and paginates", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const filtered = await gql(
+      "{ review_adapter_candidates(netuid: 7) { candidates total generated_at notes } }",
+      env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.errors, undefined);
+    assert.equal(filtered.body.data.review_adapter_candidates.total, 1);
+    assert.equal(
+      filtered.body.data.review_adapter_candidates.candidates[0].netuid,
+      7,
+    );
+
+    const paged = await gql(
+      "{ review_adapter_candidates(limit: 1) { candidates total returned next_cursor } }",
+      env,
+    );
+    assert.equal(
+      paged.body.data.review_adapter_candidates.candidates.length,
+      1,
+    );
+    assert.equal(paged.body.data.review_adapter_candidates.total, 2);
+    assert.ok(paged.body.data.review_adapter_candidates.next_cursor != null);
+  });
+
+  test("sorts by priority_score and filters curation_level", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { status, body } = await gql(
+      '{ review_adapter_candidates(sort: "priority_score", order: "asc", curation_level: "maintainer-reviewed") { candidates total } }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.data.review_adapter_candidates.total, 1);
+    assert.equal(body.data.review_adapter_candidates.candidates[0].netuid, 12);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { body } = await gql(
+      '{ review_adapter_candidates(sort: "bogus") { total } }',
+      env,
+    );
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error", async () => {
+    const { body } = await gql(
+      "{ review_adapter_candidates { total } }",
+      emptyEnv,
+    );
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_adapter_candidates,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
+describe("graphql — review_enrichment_evidence (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: ["evidence drill-down"],
+    entries: [
+      {
+        netuid: 7,
+        name: "Allways",
+        lane: "direct-submission",
+        evidence_action: "replace-stale-evidence",
+        priority_score: 88,
+      },
+      {
+        netuid: 12,
+        name: "Compute",
+        lane: "maintainer-review",
+        evidence_action: "submit-new-evidence",
+        priority_score: 72,
+      },
+    ],
+  };
+  const path = "/metagraph/review/enrichment-evidence.json";
+
+  test("filters by lane and paginates", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const filtered = await gql(
+      '{ review_enrichment_evidence(lane: "direct-submission") { entries total generated_at } }',
+      env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.errors, undefined);
+    assert.equal(filtered.body.data.review_enrichment_evidence.total, 1);
+    assert.equal(
+      filtered.body.data.review_enrichment_evidence.entries[0].netuid,
+      7,
+    );
+
+    const paged = await gql(
+      "{ review_enrichment_evidence(limit: 1) { entries returned next_cursor } }",
+      env,
+    );
+    assert.equal(paged.body.data.review_enrichment_evidence.entries.length, 1);
+    assert.ok(paged.body.data.review_enrichment_evidence.next_cursor != null);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { body } = await gql(
+      '{ review_enrichment_evidence(sort: "bogus") { total } }',
+      env,
+    );
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error", async () => {
+    const { body } = await gql(
+      "{ review_enrichment_evidence { total } }",
+      emptyEnv,
+    );
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_enrichment_evidence,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
+describe("graphql — review_enrichment_queue (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: ["review queue"],
+    queue: [
+      {
+        netuid: 7,
+        name: "Allways",
+        lane: "direct-submission",
+        priority_score: 88,
+        review_state: "needs-evidence",
+      },
+      {
+        netuid: 12,
+        name: "Compute",
+        lane: "maintainer-review",
+        priority_score: 72,
+        review_state: "accepted",
+      },
+    ],
+  };
+  const path = "/metagraph/review/enrichment-queue.json";
+
+  test("filters by review_state and paginates", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const filtered = await gql(
+      '{ review_enrichment_queue(review_state: "accepted") { queue total } }',
+      env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.errors, undefined);
+    assert.equal(filtered.body.data.review_enrichment_queue.total, 1);
+    assert.equal(
+      filtered.body.data.review_enrichment_queue.queue[0].netuid,
+      12,
+    );
+
+    const paged = await gql(
+      "{ review_enrichment_queue(limit: 1) { queue returned next_cursor } }",
+      env,
+    );
+    assert.equal(paged.body.data.review_enrichment_queue.queue.length, 1);
+    assert.ok(paged.body.data.review_enrichment_queue.next_cursor != null);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { body } = await gql(
+      '{ review_enrichment_queue(sort: "bogus") { total } }',
+      env,
+    );
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error", async () => {
+    const { body } = await gql(
+      "{ review_enrichment_queue { total } }",
+      emptyEnv,
+    );
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_enrichment_queue,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
+describe("graphql — review_enrichment_targets (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: ["enrichment target drill-down"],
+    targets: [
+      {
+        netuid: 7,
+        name: "Allways",
+        target_type: "surface-candidate",
+        target_action: "submit-new-candidate",
+        lane: "direct-submission",
+        priority_score: 88,
+      },
+      {
+        netuid: 12,
+        name: "Compute",
+        target_type: "maintainer-review",
+        target_action: "maintainer-review",
+        lane: "maintainer-review",
+        priority_score: 72,
+      },
+    ],
+  };
+  const path = "/metagraph/review/enrichment-targets.json";
+
+  test("filters by target_type and paginates", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const filtered = await gql(
+      '{ review_enrichment_targets(target_type: "surface-candidate") { targets total } }',
+      env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.errors, undefined);
+    assert.equal(filtered.body.data.review_enrichment_targets.total, 1);
+    assert.equal(
+      filtered.body.data.review_enrichment_targets.targets[0].netuid,
+      7,
+    );
+
+    const paged = await gql(
+      "{ review_enrichment_targets(limit: 1) { targets returned next_cursor } }",
+      env,
+    );
+    assert.equal(paged.body.data.review_enrichment_targets.targets.length, 1);
+    assert.ok(paged.body.data.review_enrichment_targets.next_cursor != null);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { body } = await gql(
+      '{ review_enrichment_targets(sort: "bogus") { total } }',
+      env,
+    );
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error", async () => {
+    const { body } = await gql(
+      "{ review_enrichment_targets { total } }",
+      emptyEnv,
+    );
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_enrichment_targets,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
+describe("graphql — review_gaps (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    notes: ["gap priorities"],
+    priorities: [
+      {
+        netuid: 7,
+        name: "Allways",
+        priority_score: 88,
+        curation_level: "candidate-discovered",
+        review_state: "needs-evidence",
+      },
+      {
+        netuid: 12,
+        name: "Compute",
+        priority_score: 72,
+        curation_level: "maintainer-reviewed",
+        review_state: "accepted",
+      },
+    ],
+  };
+  const path = "/metagraph/review/gap-priorities.json";
+
+  test("filters by curation_level and paginates", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const filtered = await gql(
+      '{ review_gaps(curation_level: "maintainer-reviewed") { priorities total } }',
+      env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.errors, undefined);
+    assert.equal(filtered.body.data.review_gaps.total, 1);
+    assert.equal(filtered.body.data.review_gaps.priorities[0].netuid, 12);
+
+    const paged = await gql(
+      "{ review_gaps(limit: 1) { priorities returned next_cursor } }",
+      env,
+    );
+    assert.equal(paged.body.data.review_gaps.priorities.length, 1);
+    assert.ok(paged.body.data.review_gaps.next_cursor != null);
+  });
+
+  test("sorts by priority_score and filters review_state", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { status, body } = await gql(
+      '{ review_gaps(sort: "priority_score", order: "desc", review_state: "needs-evidence") { priorities total } }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.data.review_gaps.total, 1);
+    assert.equal(body.data.review_gaps.priorities[0].netuid, 7);
+  });
+
+  test("surfaces an invalid sort as a GraphQL error", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { body } = await gql('{ review_gaps(sort: "bogus") { total } }', env);
+    assert.ok(body.errors?.length);
+  });
+
+  test("surfaces a cold/missing artifact as a GraphQL error", async () => {
+    const { body } = await gql("{ review_gaps { total } }", emptyEnv);
+    assert.ok(body.errors?.length);
+    assert.equal(body.data, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_gaps,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
+describe("graphql — review_profile_completeness (#7167)", () => {
+  const BLOB = {
+    generated_at: "2026-07-01T00:00:00.000Z",
+    schema_version: 1,
+    summary: { profile_count: 1 },
+    profiles: [{ netuid: 7, name: "Allways", completeness_score: 40 }],
+  };
+  const path = "/metagraph/review/profile-completeness.json";
+
+  test("passes the baked artifact through verbatim as opaque JSON", async () => {
+    const env = fixtureEnv({ [path]: BLOB });
+    const { status, body } = await gql("{ review_profile_completeness }", env);
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(body.data.review_profile_completeness, BLOB);
+  });
+
+  test("degrades to null on a cold/absent artifact, not a GraphQL error", async () => {
+    const { status, body } = await gql(
+      "{ review_profile_completeness }",
+      emptyEnv,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.review_profile_completeness, null);
+  });
+
+  test("FIELD_COMPLEXITY weights it like its sibling relationship fields", () => {
+    assert.equal(
+      FIELD_COMPLEXITY.review_profile_completeness,
+      FIELD_COMPLEXITY.source_snapshots,
+    );
+  });
+});
+
 // #7171: GraphQL parity for GET /api/v1/chain-events (Query feed).
 describe("graphql — chain_events (#7171, DATA_API all-events feed)", () => {
   function dataApi(response) {
