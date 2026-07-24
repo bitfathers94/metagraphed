@@ -92,6 +92,8 @@ export const SDL = /* GraphQL */ `
     saved_query(id: String!, params: JSON): JSON
     "The recorded response fixtures for registered surfaces, used to replay/verify a surface without calling it. Null when no fixture index has been baked in this environment. Opaque JSON passed through verbatim, matching the list_fixtures MCP/REST shape. Mirrors GET /api/v1/fixtures."
     fixtures: JSON
+    "One surface's captured, sanitized live request/response fixture by surface_id (also resolving deprecated surface_id aliases). Null when no fixture exists for that surface_id (rather than a GraphQL error); an invalid surface_id is a BAD_USER_INPUT error. Reuses the same loadFixture loader the get_fixture MCP tool calls. Opaque JSON passed through verbatim. Mirrors GET /api/v1/fixtures/{surface_id}."
+    fixture(surface_id: String!): JSON
     "The agent-callable service catalog: without a netuid, the global index of subnets exposing callable services; with one, that subnet's full per-service catalog. Both are overlaid with live health exactly as REST composes them. Null when the catalog has not been baked. Opaque JSON, matching the get_agent_catalog MCP/REST shape. Mirrors GET /api/v1/agent-catalog."
     agent_catalog(netuid: Int): JSON
     "Artifact freshness: each published artifact's generated_at/age, merged with the live cron snapshot stamp when the health store is warm. Null when no freshness artifact has been baked. Opaque JSON, matching the get_freshness MCP/REST shape. Mirrors GET /api/v1/freshness."

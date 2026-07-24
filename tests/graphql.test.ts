@@ -20581,6 +20581,126 @@ describe("graphql — adapter (#6984, reuses loadAdapter / MCP get_adapter)", ()
   });
 });
 
+describe("graphql — fixture(surface_id) (#7867, reuses loadFixture / MCP get_fixture)", () => {
+  const SAMPLE = {
+    surface_id: "allways-api-health",
+    netuid: 7,
+    kind: "subnet-api",
+    request: { method: "GET", url: "https://api.all-ways.io/health" },
+    response: { status: 200, body: { ok: true } },
+  };
+
+  const query = `{ fixture(surface_id: "allways-api-health") }`;
+
+  test("resolves a baked fixture artifact via loadFixture", async () => {
+    const env = fixtureEnv({
+      "/metagraph/fixtures/allways-api-health.json": SAMPLE,
+    });
+    const { status, body } = await gql(query, env);
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(body.data.fixture, SAMPLE);
+  });
+
+  test("resolves deprecated surface_id aliases, matching MCP get_fixture", async () => {
+    const env = fixtureEnv({
+      "/metagraph/operational-surfaces.json": {
+        surfaces: [
+          {
+            surface_id: "7:subnet-api:new",
+            surface_key: "srf-renamed",
+            netuid: 7,
+            kind: "subnet-api",
+          },
+        ],
+      },
+      "/metagraph/surface-aliases.json": {
+        aliases: [
+          {
+            deprecated_id: "7:subnet-api:old",
+            surface_key: "srf-renamed",
+            current_id: "7:subnet-api:new",
+            netuid: 7,
+            kind: "subnet-api",
+          },
+        ],
+      },
+      "/metagraph/fixtures/7:subnet-api:new.json": {
+        surface_id: "7:subnet-api:new",
+        response: { status: 200, body: { renamed: true } },
+      },
+    });
+    const { status, body } = await gql(
+      '{ fixture(surface_id: "7:subnet-api:old") }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(body.data.fixture.response.body, { renamed: true });
+  });
+
+  test("a surface_id with no fixture resolves to null (schema-stable), never a GraphQL error", async () => {
+    const env = fixtureEnv({
+      "/metagraph/fixtures/allways-api-health.json": SAMPLE,
+    });
+    const { status, body } = await gql(
+      '{ fixture(surface_id: "missing-surface") }',
+      env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.fixture, null);
+  });
+
+  test("cold/absent store resolves to null", async () => {
+    const { status, body } = await gql(query);
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.fixture, null);
+  });
+
+  test("an invalid surface_id is BAD_USER_INPUT, matching MCP get_fixture", async () => {
+    const { status, body } = await gql('{ fixture(surface_id: "../secrets") }');
+    assert.equal(status, 200);
+    assert.ok(
+      body.errors.find((e: Row) => e.extensions?.code === "BAD_USER_INPUT"),
+    );
+    assert.equal(body.data?.fixture ?? null, null);
+  });
+
+  test("an empty surface_id is BAD_USER_INPUT", async () => {
+    const { status, body } = await gql('{ fixture(surface_id: "  ") }');
+    assert.equal(status, 200);
+    assert.ok(
+      body.errors.find((e: Row) => e.extensions?.code === "BAD_USER_INPUT"),
+    );
+    assert.equal(body.data?.fixture ?? null, null);
+  });
+
+  test("a non-toolError from the artifact read is propagated", async () => {
+    const env = {
+      METAGRAPH_R2_LATEST_PREFIX: "latest/",
+      METAGRAPH_ARCHIVE: {
+        async get() {
+          return {
+            async json() {
+              throw new Error("corrupt fixture artifact");
+            },
+          };
+        },
+      },
+    };
+    const { status, body } = await gql(query, env);
+    assert.equal(status, 200);
+    assert.ok(body.errors?.length > 0);
+    assert.equal(body.data?.fixture ?? null, null);
+  });
+
+  test("is priced at the relationship-field complexity weight", () => {
+    assert.equal(FIELD_COMPLEXITY.fixture, FIELD_COMPLEXITY.fixtures);
+  });
+});
+
 // #7171: GraphQL parity for GET /api/v1/gaps, reusing list_gaps' loader.
 describe("graphql — gaps", () => {
   const GAPS_BLOB = {
