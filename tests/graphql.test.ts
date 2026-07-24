@@ -3341,6 +3341,83 @@ describe("graphql — sudo (#5895, Postgres-tier feed)", () => {
       next_cursor: null,
     });
   });
+
+  // #7874: block-range (block_start/block_end -> block_number) and time-range
+  // (from/to -> observed_at) bounds, matching REST + MCP get_sudo.
+  function capturingEnv(sink: { url?: URL }) {
+    return {
+      METAGRAPH_EXTRINSICS_SOURCE: "postgres",
+      DATA_API: {
+        fetch: async (req: Request) => {
+          sink.url = new URL(req.url);
+          return Response.json({
+            schema_version: 1,
+            extrinsic_count: 0,
+            limit: 20,
+            offset: 0,
+            next_cursor: null,
+            extrinsics: [],
+          });
+        },
+      },
+    } as unknown as Env;
+  }
+
+  test("sudo: a block range is forwarded (#7874)", async () => {
+    const sink: { url?: URL } = {};
+    await gql(
+      "{ sudo(block_start: 100, block_end: 200) { total } }",
+      capturingEnv(sink),
+    );
+    assert.equal(sink.url!.pathname, "/api/v1/sudo");
+    assert.equal(sink.url!.searchParams.get("block_start"), "100");
+    assert.equal(sink.url!.searchParams.get("block_end"), "200");
+  });
+
+  test("sudo: a time range is forwarded (#7874)", async () => {
+    const sink: { url?: URL } = {};
+    await gql(
+      "{ sudo(from: 1750000000, to: 1760000000) { total } }",
+      capturingEnv(sink),
+    );
+    assert.equal(sink.url!.searchParams.get("from"), "1750000000");
+    assert.equal(sink.url!.searchParams.get("to"), "1760000000");
+  });
+
+  test("sudo: block and time bounds combine with the existing filters (#7874)", async () => {
+    const sink: { url?: URL } = {};
+    await gql(
+      `{ sudo(limit: 5, call_function: "sudo", block_start: 10, block_end: 20, from: 1, to: 2) { total } }`,
+      capturingEnv(sink),
+    );
+    assert.equal(sink.url!.searchParams.get("limit"), "5");
+    assert.equal(sink.url!.searchParams.get("call_function"), "sudo");
+    assert.equal(sink.url!.searchParams.get("block_start"), "10");
+    assert.equal(sink.url!.searchParams.get("block_end"), "20");
+    assert.equal(sink.url!.searchParams.get("from"), "1");
+    assert.equal(sink.url!.searchParams.get("to"), "2");
+  });
+
+  test("sudo: omitted bounds are not forwarded (#7874)", async () => {
+    const sink: { url?: URL } = {};
+    await gql("{ sudo { total } }", capturingEnv(sink));
+    for (const p of ["block_start", "block_end", "from", "to"]) {
+      assert.equal(sink.url!.searchParams.get(p), null, `${p} must be absent`);
+    }
+  });
+
+  test("sudo: a negative bound is BAD_USER_INPUT (#7874)", async () => {
+    for (const arg of [
+      "block_start: -1",
+      "block_end: -1",
+      "from: -1",
+      "to: -1",
+    ]) {
+      const { body } = await gql(`{ sudo(${arg}) { total } }`);
+      assert.ok(body.errors, `expected a GraphQL error for ${arg}`);
+      assert.equal(body.errors[0].extensions.code, "BAD_USER_INPUT");
+    }
+  });
 });
 
 describe("graphql — extrinsics / extrinsic (#5580, Postgres-tier feed)", () => {

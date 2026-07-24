@@ -2684,7 +2684,7 @@ export type Query = {
   subnet_yield_history: SubnetYieldHistory;
   /** Paginated active-subnet index. */
   subnets: SubnetList;
-  /** Recent Sudo-pallet extrinsic feed (newest first): the chain's superuser governance calls, the same shape as the extrinsics feed with call_module fixed to Sudo (so no signer/call_module args). Mirrors GET /api/v1/sudo. */
+  /** Recent Sudo-pallet extrinsic feed (newest first): the chain's superuser governance calls, the same shape as the extrinsics feed with call_module fixed to Sudo (so no signer/call_module args). block_start/block_end (inclusive block-height range) and from/to (observed_at epoch-ms range) narrow the feed further, matching GET /api/v1/sudo and MCP get_sudo. Mirrors GET /api/v1/sudo. */
   sudo: ExtrinsicList;
   /** The network's on-chain sudo (superuser) key hotkey, read live from chain via RPC (not the Postgres tier). hotkey is null on RPC failure or a renounced sudo, schema-stable, never a GraphQL error. Mirrors GET /api/v1/sudo/key. */
   sudo_key?: Maybe<SudoKey>;
@@ -3779,11 +3779,15 @@ export type QuerySubnetsArgs = {
 
 export type QuerySudoArgs = {
   block?: InputMaybe<Scalars['Int']['input']>;
+  block_end?: InputMaybe<Scalars['Int']['input']>;
+  block_start?: InputMaybe<Scalars['Int']['input']>;
   call_function?: InputMaybe<Scalars['String']['input']>;
   cursor?: InputMaybe<Scalars['String']['input']>;
+  from?: InputMaybe<Scalars['Int']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
   success?: InputMaybe<Scalars['Boolean']['input']>;
+  to?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

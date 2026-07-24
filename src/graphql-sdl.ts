@@ -776,7 +776,7 @@ export const SDL = /* GraphQL */ `
     evm_address(h160: String!): EvmAddressMapping
     "The get_evm_address_mapping-aligned name for evm_address, so the MCP tool name and this Query field line up. Structurally identical to evm_address -- same live RPC read, same validation, same schema-stable null on an unresolved mapping -- not a second lookup. Mirrors GET /api/v1/evm/address/{h160}."
     evm_address_mapping(h160: String!): EvmAddressMapping
-    "Recent Sudo-pallet extrinsic feed (newest first): the chain's superuser governance calls, the same shape as the extrinsics feed with call_module fixed to Sudo (so no signer/call_module args). Mirrors GET /api/v1/sudo."
+    "Recent Sudo-pallet extrinsic feed (newest first): the chain's superuser governance calls, the same shape as the extrinsics feed with call_module fixed to Sudo (so no signer/call_module args). block_start/block_end (inclusive block-height range) and from/to (observed_at epoch-ms range) narrow the feed further, matching GET /api/v1/sudo and MCP get_sudo. Mirrors GET /api/v1/sudo."
     sudo(
       limit: Int
       offset: Int
@@ -784,6 +784,10 @@ export const SDL = /* GraphQL */ `
       block: Int
       call_function: String
       success: Boolean
+      block_start: Int
+      block_end: Int
+      from: Int
+      to: Int
     ): ExtrinsicList!
   }
 
