@@ -4097,10 +4097,22 @@ export type Subnet = {
   status?: Maybe<Scalars['String']['output']>;
   subnet_type?: Maybe<Scalars['String']['output']>;
   surface_count?: Maybe<Scalars['Int']['output']>;
-  /** Curated public interface surfaces of this subnet. */
+  /** Curated public interface surfaces of this subnet. Called with no arguments this is the full unpaged list (unchanged). Supplying any filter/sort/page argument routes the field through the same loader MCP list_surfaces and REST GET /api/v1/surfaces use -- filter by kind/provider/id, sort with sort/order, project with fields, and page with limit (1-100)/cursor (a non-negative integer offset). An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default (#7885). */
   surfaces: Array<Surface>;
   symbol?: Maybe<Scalars['String']['output']>;
   website_url?: Maybe<Scalars['String']['output']>;
+};
+
+
+export type SubnetSurfacesArgs = {
+  cursor?: InputMaybe<Scalars['Int']['input']>;
+  fields?: InputMaybe<Scalars['String']['input']>;
+  id?: InputMaybe<Scalars['String']['input']>;
+  kind?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  order?: InputMaybe<Scalars['String']['input']>;
+  provider?: InputMaybe<Scalars['String']['input']>;
+  sort?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SubnetAxonRemovals = {
@@ -8046,7 +8058,7 @@ export type SubnetResolvers<ContextType = GqlContext, ParentType extends Resolve
   status?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   subnet_type?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   surface_count?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
-  surfaces?: Resolver<Array<ResolversTypes['Surface']>, ParentType, ContextType>;
+  surfaces?: Resolver<Array<ResolversTypes['Surface']>, ParentType, ContextType, Partial<SubnetSurfacesArgs>>;
   symbol?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   website_url?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
 }>;

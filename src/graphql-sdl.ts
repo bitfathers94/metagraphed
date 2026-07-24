@@ -810,8 +810,17 @@ export const SDL = /* GraphQL */ `
     health: SubnetHealth
     "Per-subnet economic + validator metrics."
     economics: SubnetEconomics
-    "Curated public interface surfaces of this subnet."
-    surfaces: [Surface!]!
+    "Curated public interface surfaces of this subnet. Called with no arguments this is the full unpaged list (unchanged). Supplying any filter/sort/page argument routes the field through the same loader MCP list_surfaces and REST GET /api/v1/surfaces use -- filter by kind/provider/id, sort with sort/order, project with fields, and page with limit (1-100)/cursor (a non-negative integer offset). An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default (#7885)."
+    surfaces(
+      kind: String
+      provider: String
+      id: String
+      sort: String
+      order: String
+      fields: String
+      limit: Int
+      cursor: Int
+    ): [Surface!]!
     "Endpoint/resource registry rows for this subnet."
     endpoints: [Endpoint!]!
   }
