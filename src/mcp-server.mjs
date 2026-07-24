@@ -140,6 +140,12 @@ import {
   loadSubnetEndpointsList,
 } from "./subnet-endpoints-mcp.ts";
 import {
+  LIST_SUBNET_HEALTH_INSTRUCTIONS,
+  LIST_SUBNET_HEALTH_MCP_TOOL,
+  LIST_SUBNET_HEALTH_OUTPUT_SCHEMA,
+  loadSubnetHealthList,
+} from "./subnet-health-mcp.ts";
+import {
   LIST_SUBNET_EVIDENCE_INSTRUCTIONS,
   LIST_SUBNET_EVIDENCE_MCP_TOOL,
   LIST_SUBNET_EVIDENCE_OUTPUT_SCHEMA,
@@ -834,6 +840,7 @@ export const MCP_INSTRUCTIONS =
   "enumerate or page through the whole registry, semantic_search " +
   "to discover by intent (meaning-based), and ask for a grounded natural-" +
   "language answer with citations; get_subnet / get_subnet_health for detail, " +
+  LIST_SUBNET_HEALTH_INSTRUCTIONS +
   "list_subnet_apis + get_api_schema to integrate a subnet's API, and " +
   "get_best_rpc_endpoint for a live-healthy Bittensor base-layer RPC endpoint. " +
   GET_COVERAGE_INSTRUCTIONS +
@@ -2861,6 +2868,12 @@ export const MCP_TOOLS = [
         reliability,
         surfaces: [],
       };
+    },
+  },
+  {
+    ...LIST_SUBNET_HEALTH_MCP_TOOL,
+    async handler(args, ctx) {
+      return loadSubnetHealthList(ctx, args);
     },
   },
   {
@@ -11885,6 +11898,7 @@ const TOOL_OUTPUT_SCHEMAS = {
       }),
     },
   },
+  list_subnet_health: LIST_SUBNET_HEALTH_OUTPUT_SCHEMA,
   get_subnet_health_trends: {
     type: "object",
     additionalProperties: true,

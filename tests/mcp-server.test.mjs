@@ -2553,6 +2553,86 @@ describe("MCP tools (injected deps)", () => {
     assert.ok(validate(res.body.result.structuredContent));
   });
 
+  test("list_subnet_health returns filtered live health surfaces", async () => {
+    const deps = makeDeps(
+      {},
+      {
+        "health:current": {
+          last_run_at: FRESH_RUN,
+          surfaces: [
+            {
+              surface_id: "7:subnet-api:x",
+              netuid: 7,
+              kind: "subnet-api",
+              provider: "allways",
+              status: "ok",
+              classification: "live",
+              latency_ms: 100,
+            },
+            {
+              surface_id: "7:openapi:x",
+              netuid: 7,
+              kind: "openapi",
+              provider: "allways",
+              status: "degraded",
+              classification: "transient",
+              latency_ms: 400,
+            },
+          ],
+        },
+      },
+    );
+    const res = await callTool(
+      "list_subnet_health",
+      { netuid: 7, status: "ok" },
+      { deps },
+    );
+    const out = res.body.result.structuredContent;
+    assert.equal(out.returned, 1);
+    assert.equal(out.surfaces[0].kind, "subnet-api");
+    assert.equal(out.netuid, 7);
+  });
+
+  test("list_subnet_health reports an empty surface list when the live store is cold", async () => {
+    const res = await callTool(
+      "list_subnet_health",
+      { netuid: 7 },
+      { deps: makeDeps() },
+    );
+    const out = res.body.result.structuredContent;
+    assert.deepEqual(out.surfaces, []);
+    assert.equal(out.total, 0);
+  });
+
+  test("list_subnet_health payload validates against its declared outputSchema", async () => {
+    const schema = listToolDefinitions().find(
+      (t) => t.name === "list_subnet_health",
+    )?.outputSchema;
+    const deps = makeDeps(
+      {},
+      {
+        "health:current": {
+          last_run_at: FRESH_RUN,
+          surfaces: [
+            {
+              surface_id: "7:subnet-api:x",
+              netuid: 7,
+              kind: "subnet-api",
+              status: "ok",
+            },
+          ],
+        },
+      },
+    );
+    const res = await callTool(
+      "list_subnet_health",
+      { netuid: 7, limit: 1 },
+      { deps },
+    );
+    const validate = new Ajv2020({ strict: false }).compile(schema);
+    assert.ok(validate(res.body.result.structuredContent));
+  });
+
   test("list_endpoint_pools returns filtered pool rows", async () => {
     const deps = makeDeps({
       "/metagraph/endpoint-pools.json": {
