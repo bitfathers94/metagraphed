@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, test, vi } from "vitest";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import * as listQuery from "../workers/list-query.ts";
 import {
   RPC_ENDPOINTS_ARTIFACT,
+  LIST_RPC_ENDPOINTS_MCP_TOOL,
+  LIST_RPC_ENDPOINTS_OUTPUT_SCHEMA,
   loadRpcEndpointsList,
   rpcEndpointsMcpError,
   rpcEndpointsQueryUrl,
 } from "../src/rpc-endpoints-mcp.ts";
+import { MCP_TOOLS } from "../src/mcp-server.ts";
 import type { Row } from "./row-type.ts";
 
 type Ctx = Parameters<typeof loadRpcEndpointsList>[0];
@@ -352,5 +356,32 @@ describe("rpc-endpoints-mcp (#7886)", () => {
     );
     assert.deepEqual(out.endpoints, []);
     assert.equal(out.total, 0);
+  });
+});
+
+// #7893: list_rpc_endpoints MCP tool wiring on top of the shared loader above
+// (added for GraphQL parity by #7886) — the tool metadata/schema and its
+// registration in MCP_TOOLS, complementing the loader-behavior coverage above.
+describe("list_rpc_endpoints MCP tool (#7893)", () => {
+  test("tool metadata and outputSchema compile", () => {
+    assert.equal(LIST_RPC_ENDPOINTS_MCP_TOOL.name, "list_rpc_endpoints");
+    assert.equal(
+      LIST_RPC_ENDPOINTS_MCP_TOOL.inputSchema.additionalProperties,
+      false,
+    );
+    assert.ok(
+      new Ajv2020({ strict: false }).compile(
+        LIST_RPC_ENDPOINTS_MCP_TOOL.inputSchema,
+      ),
+    );
+    assert.ok(
+      new Ajv2020({ strict: false }).compile(LIST_RPC_ENDPOINTS_OUTPUT_SCHEMA),
+    );
+  });
+
+  test("MCP server exports wire list_rpc_endpoints", () => {
+    const tool = MCP_TOOLS.find((t: Row) => t.name === "list_rpc_endpoints");
+    assert.ok(tool);
+    assert.equal(tool.title, "List Bittensor RPC endpoints");
   });
 });
