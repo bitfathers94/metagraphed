@@ -25,7 +25,21 @@ interface WalletVerifyResponse {
   account: { ss58: string; tier: string };
 }
 
-function readStoredSession(ss58: string): StoredSession | null {
+/** Turns a verify response into the session record persisted client-side. */
+export function buildStoredSession(
+  ss58: string,
+  verify: WalletVerifyResponse,
+  nowMs: number,
+): StoredSession {
+  return {
+    token: verify.session_token,
+    ss58,
+    tier: verify.account.tier,
+    expiresAtMs: nowMs + verify.expires_in_seconds * 1000,
+  };
+}
+
+export function readStoredSession(ss58: string): StoredSession | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -38,7 +52,7 @@ function readStoredSession(ss58: string): StoredSession | null {
   }
 }
 
-function writeStoredSession(session: StoredSession | null) {
+export function writeStoredSession(session: StoredSession | null) {
   if (typeof window === "undefined") return;
   try {
     if (session) window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
@@ -93,12 +107,7 @@ export function useApiSession(wallet: ConnectedWallet | null) {
           body: JSON.stringify({ ss58: wallet.address, signature }),
         },
       });
-      const next: StoredSession = {
-        token: verify.data.session_token,
-        ss58: wallet.address,
-        tier: verify.data.account.tier,
-        expiresAtMs: Date.now() + verify.data.expires_in_seconds * 1000,
-      };
+      const next = buildStoredSession(wallet.address, verify.data, Date.now());
       writeStoredSession(next);
       setSession(next);
       setStatus("active");
