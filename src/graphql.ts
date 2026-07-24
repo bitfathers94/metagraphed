@@ -183,6 +183,7 @@ import {
   analyticsWindow,
   loadGlobalIncidentsLedger,
 } from "../workers/request-handlers/analytics.ts";
+import { applyGlobalIncidentsListQuery } from "./global-incidents-mcp.ts";
 import {
   BLOCK_PAGINATION,
   DAY_PATTERN,
@@ -3092,7 +3093,8 @@ const rootValue = {
     });
   },
 
-  async incidents({ window }: Row, context: GqlContext) {
+  async incidents(args: Row, context: GqlContext) {
+    const { window, ...listArgs } = args;
     // Reuse the exact analyticsWindow parse/validate REST's handleGlobalIncidents
     // uses (7d/30d, default 7d) -- an unsupported window is a GraphQL BAD_USER_INPUT
     // error, not a silent empty result. analyticsWindow reads only the ?window param.
@@ -3119,7 +3121,7 @@ const rootValue = {
         "METAGRAPH_HEALTH_SOURCE",
       )) as Row | null) ??
       (await loadGlobalIncidentsLedger(context.env, { label })).data;
-    return {
+    const ledger = {
       schema_version: data.schema_version ?? 1,
       window: data.window ?? label,
       observed_at: data.observed_at ?? null,
@@ -3127,15 +3129,29 @@ const rootValue = {
       summary: data.summary ?? null,
       surfaces: data.surfaces ?? [],
     };
+    // #7875: netuid/sort/order/limit/cursor filters on top of the window scope,
+    // via the same list-query helper get_global_incidents' MCP tool calls (not a
+    // GraphQL-only reimplementation). Its only failure mode is invalid_params
+    // (an unsupported filter/sort/limit/cursor), which becomes a GraphQL error
+    // matching endpoint_incidents' convention.
+    try {
+      return applyGlobalIncidentsListQuery(ledger, listArgs);
+    } catch (rawErr) {
+      const err = rawErr as Row;
+      throw new GraphQLError(err.message, {
+        extensions: { code: "BAD_USER_INPUT" },
+      });
+    }
   },
 
   // #7643: the get_global_incidents-aligned name for the same downtime-incident
   // ledger -- a thin delegate so MCP tool names and GraphQL fields line up.
-  // Identical window validation (7d/30d -> BAD_USER_INPUT), Postgres-tier ->
-  // retired-D1 fallback, and schema-stable cold-tier degradation; nothing
-  // re-derived. Distinct from endpoint_incidents (the active endpoint feed).
-  async global_incidents({ window }: Row, context: GqlContext) {
-    return rootValue.incidents({ window }, context);
+  // Identical window validation (7d/30d -> BAD_USER_INPUT), netuid/sort/order/
+  // limit/cursor filters (#7875), Postgres-tier -> retired-D1 fallback, and
+  // schema-stable cold-tier degradation; nothing re-derived. Distinct from
+  // endpoint_incidents (the active endpoint feed).
+  async global_incidents(args: Row, context: GqlContext) {
+    return rootValue.incidents(args, context);
   },
 
   // #7876: GraphQL parity for the search field's REST/MCP filters. Reuse

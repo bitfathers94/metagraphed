@@ -7438,7 +7438,10 @@ describe("graphql — incidents (#5660, Postgres-tier + retired-D1 fallback ledg
       DATA_API: dataApi(Response.json({})),
     };
     const { status, body } = await gql(
-      '{ incidents(window: "30d") { schema_version window observed_at source summary surfaces { id } } }',
+      `{ incidents(window: "30d") {
+          schema_version window observed_at source summary surfaces { id }
+          total returned limit cursor next_cursor sort order
+        } }`,
       env as unknown as Env,
     );
     assert.equal(status, 200);
@@ -7449,6 +7452,13 @@ describe("graphql — incidents (#5660, Postgres-tier + retired-D1 fallback ledg
       source: null,
       summary: null,
       surfaces: [],
+      total: 0,
+      returned: 0,
+      limit: 0,
+      cursor: 0,
+      next_cursor: null,
+      sort: null,
+      order: "asc",
     });
   });
 
@@ -7461,6 +7471,91 @@ describe("graphql — incidents (#5660, Postgres-tier + retired-D1 fallback ledg
     );
     assert.ok(body.errors, "expected a GraphQL error");
     assert.ok(/window|7d/i.test(body.errors[0].message));
+    assert.equal(body.data?.incidents ?? null, null);
+  });
+
+  test("filters by netuid on top of the window scope (#7875)", async () => {
+    const env = {
+      METAGRAPH_HEALTH_SOURCE: "postgres",
+      DATA_API: dataApi(
+        Response.json({
+          schema_version: 1,
+          window: "30d",
+          surfaces: [
+            { id: "inc-1", netuid: 5, state: "down" },
+            { id: "inc-2", netuid: 9, state: "warn" },
+          ],
+        }),
+      ),
+    };
+    const { status, body } = await gql(
+      '{ incidents(window: "30d", netuid: 9) { total surfaces { id netuid } } }',
+      env as unknown as Env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.incidents.total, 1);
+    assert.deepEqual(body.data.incidents.surfaces, [
+      { id: "inc-2", netuid: 9 },
+    ]);
+  });
+
+  test("sorts, orders, and pages a multi-row ledger, returning cursor/next_cursor meta (#7875)", async () => {
+    // Fresh Response per query -- dataApi's fixed Response instance can only be
+    // consumed once, so each sequential page needs its own env.
+    function pagedEnv() {
+      return {
+        METAGRAPH_HEALTH_SOURCE: "postgres",
+        DATA_API: dataApi(
+          Response.json({
+            schema_version: 1,
+            window: "30d",
+            surfaces: [
+              { id: "inc-1", netuid: 5, incident_count: 3 },
+              { id: "inc-2", netuid: 9, incident_count: 1 },
+              { id: "inc-3", netuid: 2, incident_count: 2 },
+            ],
+          }),
+        ),
+      };
+    }
+    const { status, body } = await gql(
+      '{ incidents(window: "30d", sort: "incident_count", order: "desc", limit: 2) { total returned limit cursor next_cursor sort order surfaces { id } } }',
+      pagedEnv() as unknown as Env,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    const inc = body.data.incidents;
+    assert.equal(inc.total, 3);
+    assert.equal(inc.returned, 2);
+    assert.equal(inc.limit, 2);
+    assert.equal(inc.cursor, 0);
+    assert.equal(inc.next_cursor, 2);
+    assert.equal(inc.sort, "incident_count");
+    assert.equal(inc.order, "desc");
+    assert.deepEqual(
+      inc.surfaces.map((s: Row) => s.id),
+      ["inc-1", "inc-3"],
+    );
+    const nextPage = await gql(
+      '{ incidents(window: "30d", sort: "incident_count", order: "desc", limit: 2, cursor: 2) { returned next_cursor surfaces { id } } }',
+      pagedEnv() as unknown as Env,
+    );
+    assert.equal(nextPage.body.data.incidents.returned, 1);
+    assert.equal(nextPage.body.data.incidents.next_cursor, null);
+    assert.deepEqual(
+      nextPage.body.data.incidents.surfaces.map((s: Row) => s.id),
+      ["inc-2"],
+    );
+  });
+
+  test("an unsupported sort field is BAD_USER_INPUT, not a silently substituted default", async () => {
+    const { body } = await gql(
+      '{ incidents(window: "30d", sort: "bogus") { total } }',
+      { METAGRAPH_HEALTH_DB: emptyHealthDb },
+    );
+    assert.ok(body.errors, "expected a GraphQL error");
+    assert.equal(body.errors[0].extensions?.code, "BAD_USER_INPUT");
     assert.equal(body.data?.incidents ?? null, null);
   });
 });

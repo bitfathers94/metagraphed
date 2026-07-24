@@ -502,10 +502,24 @@ export const SDL = /* GraphQL */ `
     opportunity_boards(limit: Int): OpportunityBoards!
     "Cross-subnet comparison: registry structure, live economics, and live health placed side by side for the requested netuids, in requested order. Mirrors GET /api/v1/compare."
     compare(netuids: [Int!]!, dimensions: [String!]): Compare!
-    "Global endpoint-incident ledger over a 7d/30d window; degrades to a schema-stable empty ledger (never a GraphQL error) on a cold/retired health tier. Mirrors GET /api/v1/incidents."
-    incidents(window: String): GlobalIncidents!
-    "The get_global_incidents-aligned name for the same global downtime-incident ledger (#7643): identical 7d/30d window validation, tier fallback, and cold-tier degradation as incidents — a thin alias so MCP tool names and GraphQL fields line up. Distinct from endpoint_incidents (the active endpoint failure/degradation feed, GET /api/v1/endpoint-incidents): this is the historical incident ledger. Returns the typed GlobalIncidents envelope rather than the issue's literal JSON suggestion, matching incidents. Mirrors GET /api/v1/incidents."
-    global_incidents(window: String): GlobalIncidents!
+    "Global endpoint-incident ledger over a 7d/30d window, additionally filterable by netuid and sortable/pageable like the sibling endpoint_incidents field; degrades to a schema-stable empty ledger (never a GraphQL error) on a cold/retired health tier. An invalid netuid/sort/order/limit/cursor is a GraphQL error, not a silently substituted default. Mirrors GET /api/v1/incidents."
+    incidents(
+      window: String
+      netuid: Int
+      sort: String
+      order: String
+      limit: Int
+      cursor: Int
+    ): GlobalIncidents!
+    "The get_global_incidents-aligned name for the same global downtime-incident ledger (#7643): identical 7d/30d window validation, tier fallback, netuid/sort/order/limit/cursor filters, and cold-tier degradation as incidents — a thin alias so MCP tool names and GraphQL fields line up. Distinct from endpoint_incidents (the active endpoint failure/degradation feed, GET /api/v1/endpoint-incidents): this is the historical incident ledger. Returns the typed GlobalIncidents envelope rather than the issue's literal JSON suggestion, matching incidents. Mirrors GET /api/v1/incidents."
+    global_incidents(
+      window: String
+      netuid: Int
+      sort: String
+      order: String
+      limit: Int
+      cursor: Int
+    ): GlobalIncidents!
     "Recent-extrinsic feed (newest first), optionally filtered. Mirrors GET /api/v1/extrinsics."
     extrinsics(
       limit: Int
@@ -2772,7 +2786,7 @@ export const SDL = /* GraphQL */ `
     points: [SubnetConcentrationHistoryPoint!]!
   }
 
-  "Global endpoint-incident ledger (#5660). Mirrors GET /api/v1/incidents' data envelope."
+  "Global endpoint-incident ledger (#5660). Mirrors GET /api/v1/incidents' data envelope, including its netuid/sort/order/limit/cursor list-query pagination meta (#7875)."
   type GlobalIncidents {
     schema_version: Int!
     window: String
@@ -2781,6 +2795,13 @@ export const SDL = /* GraphQL */ `
     "Aggregate counts -- incident_count, active_count, and by_kind/by_layer/by_provider/by_severity/by_status maps. Opaque JSON: the by_* maps are dynamic-keyed, matching the MCP get_global_incidents summary shape."
     summary: JSON
     surfaces: [EndpointIncident!]!
+    total: Int!
+    returned: Int!
+    limit: Int!
+    cursor: Int!
+    next_cursor: Int
+    sort: String
+    order: String
   }
 
   "One endpoint incident in the global ledger. Mirrors the REST EndpointIncident shape (enum-valued fields carried as their string values)."

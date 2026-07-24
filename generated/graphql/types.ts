@@ -2006,15 +2006,22 @@ export type GlobalHealth = {
   unknown_count?: Maybe<Scalars['Int']['output']>;
 };
 
-/** Global endpoint-incident ledger (#5660). Mirrors GET /api/v1/incidents' data envelope. */
+/** Global endpoint-incident ledger (#5660). Mirrors GET /api/v1/incidents' data envelope, including its netuid/sort/order/limit/cursor list-query pagination meta (#7875). */
 export type GlobalIncidents = {
   __typename?: 'GlobalIncidents';
+  cursor: Scalars['Int']['output'];
+  limit: Scalars['Int']['output'];
+  next_cursor?: Maybe<Scalars['Int']['output']>;
   observed_at?: Maybe<Scalars['String']['output']>;
+  order?: Maybe<Scalars['String']['output']>;
+  returned: Scalars['Int']['output'];
   schema_version: Scalars['Int']['output'];
+  sort?: Maybe<Scalars['String']['output']>;
   source?: Maybe<Scalars['String']['output']>;
   /** Aggregate counts -- incident_count, active_count, and by_kind/by_layer/by_provider/by_severity/by_status maps. Opaque JSON: the by_* maps are dynamic-keyed, matching the MCP get_global_incidents summary shape. */
   summary?: Maybe<Scalars['JSON']['output']>;
   surfaces: Array<EndpointIncident>;
+  total: Scalars['Int']['output'];
   window?: Maybe<Scalars['String']['output']>;
 };
 
@@ -2516,7 +2523,7 @@ export type Query = {
   freshness?: Maybe<Scalars['JSON']['output']>;
   /** Registry-wide interface gap report -- every active subnet's missing/unsupported public interface facets, gap_count, coverage_level, and curation_level. Filter by netuid/coverage_level/curation_level, sort with sort/order, and page with limit (1-100)/cursor. An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default. Distinct from subnet_gaps(netuid) (one subnet's contributor enrichment queue). Mirrors GET /api/v1/gaps. */
   gaps: GapsList;
-  /** The get_global_incidents-aligned name for the same global downtime-incident ledger (#7643): identical 7d/30d window validation, tier fallback, and cold-tier degradation as incidents — a thin alias so MCP tool names and GraphQL fields line up. Distinct from endpoint_incidents (the active endpoint failure/degradation feed, GET /api/v1/endpoint-incidents): this is the historical incident ledger. Returns the typed GlobalIncidents envelope rather than the issue's literal JSON suggestion, matching incidents. Mirrors GET /api/v1/incidents. */
+  /** The get_global_incidents-aligned name for the same global downtime-incident ledger (#7643): identical 7d/30d window validation, tier fallback, netuid/sort/order/limit/cursor filters, and cold-tier degradation as incidents — a thin alias so MCP tool names and GraphQL fields line up. Distinct from endpoint_incidents (the active endpoint failure/degradation feed, GET /api/v1/endpoint-incidents): this is the historical incident ledger. Returns the typed GlobalIncidents envelope rather than the issue's literal JSON suggestion, matching incidents. Mirrors GET /api/v1/incidents. */
   global_incidents: GlobalIncidents;
   /** Subtensor's root-origin hyperparameter/network-config change feed (newest first) -- the extrinsics feed fixed to call_module=AdminUtils, so it takes no signer/call_module filter. Same ExtrinsicList shape as extrinsics. Mirrors GET /api/v1/governance/config-changes. */
   governance_config_changes: ExtrinsicList;
@@ -2526,7 +2533,7 @@ export type Query = {
   health_history: HealthHistory;
   /** Compact all-subnet 7d/30d daily uptime + latency trend matrix from the live health-probe history (probed every ~15 minutes); a cold store still returns both windows, schema-stable and zeroed, never a GraphQL error. Mirrors GET /api/v1/health/trends. */
   health_trends: HealthTrends;
-  /** Global endpoint-incident ledger over a 7d/30d window; degrades to a schema-stable empty ledger (never a GraphQL error) on a cold/retired health tier. Mirrors GET /api/v1/incidents. */
+  /** Global endpoint-incident ledger over a 7d/30d window, additionally filterable by netuid and sortable/pageable like the sibling endpoint_incidents field; degrades to a schema-stable empty ledger (never a GraphQL error) on a cold/retired health tier. An invalid netuid/sort/order/limit/cursor is a GraphQL error, not a silently substituted default. Mirrors GET /api/v1/incidents. */
   incidents: GlobalIncidents;
   /** The maintainer-approved cross-network subnet lineage: which testnet subnets have graduated to mainnet (mainnet <-> testnet pairs with match evidence), plus any flagged broken links. Null when the lineage has not been baked in this environment (rather than a GraphQL error). Opaque JSON passed through verbatim, matching the get_lineage MCP/REST shape. Mirrors GET /api/v1/lineage. */
   lineage?: Maybe<Scalars['JSON']['output']>;
@@ -3181,6 +3188,11 @@ export type QueryGapsArgs = {
 
 
 export type QueryGlobal_IncidentsArgs = {
+  cursor?: InputMaybe<Scalars['Int']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  netuid?: InputMaybe<Scalars['Int']['input']>;
+  order?: InputMaybe<Scalars['String']['input']>;
+  sort?: InputMaybe<Scalars['String']['input']>;
   window?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -3215,6 +3227,11 @@ export type QueryHealth_HistoryArgs = {
 
 
 export type QueryIncidentsArgs = {
+  cursor?: InputMaybe<Scalars['Int']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  netuid?: InputMaybe<Scalars['Int']['input']>;
+  order?: InputMaybe<Scalars['String']['input']>;
+  sort?: InputMaybe<Scalars['String']['input']>;
   window?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -7364,11 +7381,18 @@ export type GlobalHealthResolvers<ContextType = GqlContext, ParentType extends R
 }>;
 
 export type GlobalIncidentsResolvers<ContextType = GqlContext, ParentType extends ResolversParentTypes['GlobalIncidents'] = ResolversParentTypes['GlobalIncidents']> = ResolversObject<{
+  cursor?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  limit?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  next_cursor?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   observed_at?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  order?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
+  returned?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   schema_version?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  sort?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   source?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   summary?: Resolver<Maybe<ResolversTypes['JSON']>, ParentType, ContextType>;
   surfaces?: Resolver<Array<ResolversTypes['EndpointIncident']>, ParentType, ContextType>;
+  total?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   window?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
 }>;
 
