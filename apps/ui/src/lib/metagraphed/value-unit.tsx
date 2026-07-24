@@ -5,6 +5,11 @@ export type ValueUnit = "tao" | "usd" | "both";
 const STORAGE_KEY = "mg:value-unit";
 const DEFAULT: ValueUnit = "both";
 
+/** 3-way validation of a stored/raw value, falling back to DEFAULT instead of throwing. */
+export function normalizeValueUnit(value: string | null | undefined): ValueUnit {
+  return value === "tao" || value === "usd" || value === "both" ? value : DEFAULT;
+}
+
 interface Ctx {
   unit: ValueUnit;
   setUnit: (u: ValueUnit) => void;
@@ -22,8 +27,7 @@ export function ValueUnitProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw === "tao" || raw === "usd" || raw === "both") setUnitState(raw);
+      setUnitState(normalizeValueUnit(window.localStorage.getItem(STORAGE_KEY)));
     } catch {
       /* storage blocked — keep default */
     }
