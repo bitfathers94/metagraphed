@@ -10,6 +10,7 @@ import {
 import { describe, test, vi } from "vitest";
 import * as subnetCandidatesMcp from "../src/subnet-candidates-mcp.ts";
 import * as subnetEvidenceMcp from "../src/subnet-evidence-mcp.ts";
+import * as subnetGapsMcp from "../src/subnet-gaps-mcp.ts";
 import {
   FIELD_COMPLEXITY,
   GRAPHQL_MAX_BODY_BYTES,
@@ -9469,14 +9470,14 @@ describe("graphql — subnet_gaps / subnet_evidence (#6980, baked review artifac
     const env = fixtureEnv({
       "/metagraph/review/gaps/5.json": {
         netuid: 5,
-        gaps: [{ kind: "api", missing: true }],
+        priorities: [{ netuid: 5, name: "Allways", missing_kinds: "api" }],
       },
     });
     const { status, body } = await gql("{ subnet_gaps(netuid: 5) }", env);
     assert.equal(status, 200);
     assert.equal(body.errors, undefined);
     assert.equal(body.data.subnet_gaps.netuid, 5);
-    assert.equal(body.data.subnet_gaps.gaps[0].kind, "api");
+    assert.equal(body.data.subnet_gaps.priorities[0].missing_kinds, "api");
   });
 
   test("subnet_gaps degrades to null when no report is baked, never an error", async () => {
@@ -9619,6 +9620,123 @@ describe("graphql — subnet_gaps / subnet_evidence (#6980, baked review artifac
         "{ subnet_evidence(netuid: 5) }",
         EVIDENCE_ENV(),
       );
+      assert.ok(body.errors, "expected the raw failure to surface");
+      assert.match(body.errors[0].message, /loader exploded/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // #7880: curation_level / missing_kinds / review_state / sort / order /
+  // fields / limit / cursor parity, reusing the same loader MCP
+  // list_subnet_gaps calls.
+  const GAPS_ENV = () =>
+    fixtureEnv({
+      "/metagraph/review/gaps/5.json": {
+        generated_at: "2026-07-01T00:00:00.000Z",
+        netuid: 5,
+        priorities: [
+          {
+            name: "alpha",
+            curation_level: "native",
+            missing_kinds: "openapi",
+            review_state: "pending",
+            priority_score: 90,
+          },
+          {
+            name: "beta",
+            curation_level: "community-seeded",
+            missing_kinds: "openapi",
+            review_state: "pending",
+            priority_score: 50,
+          },
+          {
+            name: "gamma",
+            curation_level: "community-seeded",
+            missing_kinds: "docs",
+            review_state: "done",
+            priority_score: 10,
+          },
+        ],
+      },
+    });
+
+  test("subnet_gaps filters by curation_level (#7880)", async () => {
+    const { status, body } = await gql(
+      '{ subnet_gaps(netuid: 5, curation_level: "native") }',
+      GAPS_ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    const out = body.data.subnet_gaps;
+    assert.equal(out.returned, 1);
+    assert.equal(out.priorities[0].name, "alpha");
+  });
+
+  test("subnet_gaps filters by missing_kinds (#7880)", async () => {
+    const { status, body } = await gql(
+      '{ subnet_gaps(netuid: 5, missing_kinds: "openapi") }',
+      GAPS_ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    const out = body.data.subnet_gaps;
+    assert.equal(out.returned, 2);
+    assert.deepEqual(
+      out.priorities.map((row: Row) => row.name),
+      ["alpha", "beta"],
+    );
+  });
+
+  test("subnet_gaps combines filters, sorts, and pages (#7880)", async () => {
+    const first = await gql(
+      '{ subnet_gaps(netuid: 5, curation_level: "community-seeded", sort: "priority_score", order: "desc", limit: 1) }',
+      GAPS_ENV(),
+    );
+    assert.equal(first.body.errors, undefined);
+    const page1 = first.body.data.subnet_gaps;
+    assert.equal(page1.total, 2);
+    assert.equal(page1.returned, 1);
+    assert.equal(page1.priorities[0].name, "beta");
+    assert.equal(page1.next_cursor, 1);
+
+    const second = await gql(
+      '{ subnet_gaps(netuid: 5, curation_level: "community-seeded", sort: "priority_score", order: "desc", limit: 1, cursor: 1) }',
+      GAPS_ENV(),
+    );
+    const page2 = second.body.data.subnet_gaps;
+    assert.equal(page2.priorities[0].name, "gamma");
+    assert.equal(page2.next_cursor, null);
+  });
+
+  test("subnet_gaps projects fields and rejects an unsupported sort (#7880)", async () => {
+    const projected = await gql(
+      '{ subnet_gaps(netuid: 5, missing_kinds: "docs", fields: "name,priority_score") }',
+      GAPS_ENV(),
+    );
+    assert.equal(projected.body.errors, undefined);
+    assert.deepEqual(projected.body.data.subnet_gaps.priorities[0], {
+      name: "gamma",
+      priority_score: 10,
+    });
+
+    const badSort = await gql(
+      '{ subnet_gaps(netuid: 5, sort: "not_a_column") }',
+      GAPS_ENV(),
+    );
+    assert.ok(badSort.body.errors, "expected a GraphQL error for sort");
+    assert.equal(badSort.body.errors[0].extensions.code, "BAD_USER_INPUT");
+  });
+
+  test("subnet_gaps propagates an unexpected loader failure (#7880)", async () => {
+    // Only the loader's own toolErrors map to null/BAD_USER_INPUT; anything
+    // else is a real fault and must surface rather than being masked as
+    // "no gap report baked".
+    const spy = vi
+      .spyOn(subnetGapsMcp, "loadSubnetGapsList")
+      .mockRejectedValue(new Error("loader exploded"));
+    try {
+      const { body } = await gql("{ subnet_gaps(netuid: 5) }", GAPS_ENV());
       assert.ok(body.errors, "expected the raw failure to surface");
       assert.match(body.errors[0].message, /loader exploded/);
     } finally {

@@ -68,6 +68,10 @@ import { loadSubnetCandidatesList } from "./subnet-candidates-mcp.ts";
 // loadSubnetEvidenceList that MCP list_subnet_evidence already calls -- not a
 // reimplementation.
 import { loadSubnetEvidenceList } from "./subnet-evidence-mcp.ts";
+// #7880: GraphQL parity for GET /api/v1/subnets/{netuid}/gaps, reusing
+// loadSubnetGapsList that MCP list_subnet_gaps already calls -- not a
+// reimplementation.
+import { loadSubnetGapsList } from "./subnet-gaps-mcp.ts";
 import { loadReviewGapsList } from "./review-gaps-mcp.ts";
 import { loadProfileCompletenessList } from "./profile-completeness-mcp.ts";
 // #6984: GraphQL parity for GET /api/v1/adapters/{slug}, reusing loadAdapter that
@@ -3508,17 +3512,37 @@ const rootValue = {
     };
   },
 
-  async subnet_gaps({ netuid }: Row, context: GqlContext) {
+  async subnet_gaps(args: Row, context: GqlContext) {
+    const { netuid } = args;
     if (!Number.isInteger(netuid) || netuid < 0) {
       throw new GraphQLError("netuid must be a non-negative integer.", {
         extensions: { code: "BAD_USER_INPUT" },
       });
     }
-    // Same baked review-gaps artifact the REST route + get_subnet_gaps MCP tool
-    // read. The MCP tool raises not_found for a netuid with no report; GraphQL
-    // degrades to null instead, matching how every other artifact-backed
-    // resolver here treats a cold/absent artifact.
-    return loadArtifact(context, `/metagraph/review/gaps/${netuid}.json`);
+    // #7880: reuse loadSubnetGapsList -- the same loader MCP list_subnet_gaps
+    // calls -- rather than reimplementing the filter/sort/page pass here, so
+    // this field cannot drift from GET /api/v1/subnets/{netuid}/gaps. It
+    // reads the same baked per-subnet artifact and validates every
+    // filter/sort/limit/cursor value against the REST allowlists, throwing on
+    // an unsupported one.
+    try {
+      return await loadSubnetGapsList(mcpCtx(context), args, { readArtifact });
+    } catch (rawErr) {
+      const err = rawErr as Row;
+      // An unsupported filter/sort/limit/cursor is BAD_USER_INPUT, matching
+      // every other field's "not a silently substituted default" convention.
+      if (err?.toolError && err.code === "invalid_params") {
+        throw new GraphQLError(err.message, {
+          extensions: { code: "BAD_USER_INPUT" },
+        });
+      }
+      // Any other loader miss (not baked / cold R2 / unavailable / no report
+      // for this netuid) stays null, preserving this field's documented
+      // cold-artifact contract -- loadArtifact, which this resolver used
+      // before, swallowed those the same way.
+      if (err?.toolError) return null;
+      throw err;
+    }
   },
 
   async subnet_evidence(args: Row, context: GqlContext) {
