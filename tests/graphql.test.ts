@@ -1317,6 +1317,167 @@ describe("graphql — surfaces / endpoints / health roots", () => {
     assert.equal(second.body.data.endpoints.items[0].id, "e2");
   });
 
+  test("endpoints applies the full REST filter/sort set (#7887)", async () => {
+    const env = fixtureEnv({
+      "/metagraph/endpoints.json": {
+        endpoints: [
+          {
+            id: "e1",
+            netuid: 1,
+            kind: "subnet-api",
+            layer: "subnet-app",
+            provider: "acme",
+            publication_state: "monitored",
+            status: "ok",
+            pool_eligible: true,
+            latency_ms: 50,
+            score: 90,
+          },
+          {
+            id: "e2",
+            netuid: 1,
+            kind: "rpc",
+            layer: "bittensor-base",
+            provider: "acme",
+            publication_state: "monitored",
+            status: "ok",
+            pool_eligible: false,
+            latency_ms: 200,
+            score: 40,
+          },
+          {
+            id: "e3",
+            netuid: 2,
+            kind: "subnet-api",
+            layer: "subnet-app",
+            provider: "other",
+            publication_state: "candidate",
+            status: "failed",
+            pool_eligible: false,
+            latency_ms: 30,
+            score: 70,
+          },
+        ],
+      },
+    });
+
+    // Three filters combined (kind + status + provider) → only e1.
+    const filtered = await gql(
+      '{ endpoints(kind: "subnet-api", status: "ok", provider: "acme") { items { id } total } }',
+      env as unknown as Env,
+    );
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.data.endpoints.total, 1);
+    assert.equal(filtered.body.data.endpoints.items[0].id, "e1");
+
+    // layer + pool_eligible (true) narrows to e1 alone.
+    const layerEligible = await gql(
+      '{ endpoints(layer: "subnet-app", pool_eligible: true) { items { id } total } }',
+      env as unknown as Env,
+    );
+    assert.equal(layerEligible.body.data.endpoints.total, 1);
+    assert.equal(layerEligible.body.data.endpoints.items[0].id, "e1");
+
+    // pool_eligible (false) matches e2 and e3.
+    const notEligible = await gql(
+      "{ endpoints(pool_eligible: false) { items { id } total } }",
+      env as unknown as Env,
+    );
+    assert.equal(notEligible.body.data.endpoints.total, 2);
+    assert.deepEqual(
+      notEligible.body.data.endpoints.items.map((e: Row) => e.id).sort(),
+      ["e2", "e3"],
+    );
+
+    // publication_state combined with netuid.
+    const candidate = await gql(
+      '{ endpoints(netuid: 2, publication_state: "candidate") { items { id } total } }',
+      env as unknown as Env,
+    );
+    assert.equal(candidate.body.data.endpoints.total, 1);
+    assert.equal(candidate.body.data.endpoints.items[0].id, "e3");
+
+    // sort + order.
+    const sorted = await gql(
+      '{ endpoints(sort: "score", order: "desc") { items { id score } } }',
+      env as unknown as Env,
+    );
+    assert.deepEqual(
+      sorted.body.data.endpoints.items.map((e: Row) => e.id),
+      ["e1", "e3", "e2"],
+    );
+
+    // Range filters (min_latency_ms + max_score) → e2 only: latency 200 >= 100
+    // (e1's 50 and e3's 30 are both under the bound) and score 40 <= 80.
+    const ranged = await gql(
+      "{ endpoints(min_latency_ms: 100, max_score: 80) { items { id } total } }",
+      env as unknown as Env,
+    );
+    assert.equal(ranged.body.data.endpoints.total, 1);
+    assert.equal(ranged.body.data.endpoints.items[0].id, "e2");
+
+    // fields projection restricts the returned row shape.
+    const projected = await gql(
+      '{ endpoints(fields: ["id", "score"]) { items { id score status } } }',
+      env as unknown as Env,
+    );
+    assert.equal(projected.status, 200);
+    const projectedRow = projected.body.data.endpoints.items.find(
+      (e: Row) => e.id === "e1",
+    );
+    assert.equal(projectedRow.score, 90);
+    assert.equal(projectedRow.status, null);
+
+    // A fields projection that omits `id` still gets it forced in, so the
+    // cursor keeps working.
+    const projectedNoId = await gql(
+      '{ endpoints(fields: ["score"], limit: 1) { items { id score } next_cursor } }',
+      env as unknown as Env,
+    );
+    assert.equal(projectedNoId.body.data.endpoints.items[0].id, "e1");
+    assert.equal(projectedNoId.body.data.endpoints.next_cursor, "e1");
+
+    // An invalid filter value is a GraphQL error, not a silent default.
+    const invalid = await gql(
+      '{ endpoints(kind: "not-a-real-kind") { total } }',
+      env as unknown as Env,
+    );
+    assert.ok(invalid.body.errors?.length);
+    assert.equal(invalid.body.errors[0].extensions.code, "BAD_USER_INPUT");
+  });
+
+  test("endpoints overlays live per-endpoint health before filtering (#7887)", async () => {
+    const env = fixtureEnv(
+      {
+        "/metagraph/endpoints.json": {
+          endpoints: [
+            { id: "e1", surface_id: "sn-1-api", netuid: 1, status: "ok" },
+            { id: "e2", surface_id: "sn-2-api", netuid: 2, status: "ok" },
+          ],
+        },
+      },
+      {
+        kv: {
+          [KV_HEALTH_CURRENT]: {
+            surfaces: [
+              { surface_id: "sn-1-api", status: "ok", latency_ms: 10 },
+              { surface_id: "sn-2-api", status: "degraded", latency_ms: 900 },
+            ],
+          },
+        },
+      },
+    );
+    // Baked status is "ok" for both; the live snapshot marks e2 "degraded" --
+    // filtering by status: "ok" must read the live overlay, not the baked row.
+    const { body } = await gql(
+      '{ endpoints(status: "ok") { items { id status } total } }',
+      env as unknown as Env,
+    );
+    assert.equal(body.data.endpoints.total, 1);
+    assert.equal(body.data.endpoints.items[0].id, "e1");
+    assert.equal(body.data.endpoints.items[0].status, "ok");
+  });
+
   test("health lifts the live rollup and exposes per-subnet summaries", async () => {
     const env = fixtureEnv(
       {},

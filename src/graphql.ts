@@ -9,6 +9,11 @@ import {
 import * as Sentry from "@sentry/cloudflare";
 import { readArtifact, readHealthKv } from "../workers/storage.ts";
 import { recordExceptionEvent } from "./usage-telemetry.ts";
+// #7887: the root `endpoints` field reuses applyQueryFilters -- the same
+// shared list-query machinery REST /api/v1/endpoints and MCP list_endpoints
+// apply -- for its filter/sort pass, so kind/layer/provider/... can never
+// drift from theirs.
+import { applyQueryFilters } from "../workers/list-query.ts";
 // #6986: GraphQL parity for source-snapshots, reusing list_source_snapshots'
 // own loader unchanged (same artifact read, filter, sort, and page logic REST
 // and MCP already use) -- not a reimplementation.
@@ -189,6 +194,7 @@ import {
   LEADERBOARD_BOARDS,
   loadSubnetTrajectory,
   mergeFreshness,
+  overlayArtifactEndpoints,
   overlayOverviewHealth,
   loadSubnetReliability,
   overlayCatalogDetail,
@@ -2799,13 +2805,84 @@ const rootValue = {
     });
   },
 
-  endpoints({ netuid, limit, cursor }: Row, context: GqlContext) {
-    return listPage(context, ARTIFACT.endpoints, "endpoints", {
-      limit,
-      cursor,
-      netuid,
-      keyFn: (e: Row) => e.id ?? e.surface_id,
-    });
+  // #7887: full REST filter/sort parity for GET /api/v1/endpoints. Live
+  // per-endpoint health is overlaid first (overlayArtifactEndpoints, the same
+  // overlay REST's liveHealthOverlay applies for the "endpoints" route id and
+  // list_endpoints' MCP handler applies before filtering) so status/
+  // pool_eligible/latency_ms/score read live health, not the stale baked
+  // artifact value. The filter + sort pass then reuses applyQueryFilters (the
+  // same machinery REST + list_endpoints use) -- passing only the filter/sort
+  // args, NOT limit/cursor, so it filters and orders the full set without
+  // paginating -- then this field's own established keyset pagination runs
+  // over the result, preserving EndpointList's pre-existing opaque String
+  // cursor (not REST's integer offset). An invalid filter/sort is a GraphQL
+  // error, matching REST's 400 and every sibling field's "not a silently
+  // substituted default" convention.
+  async endpoints(args: Row, context: GqlContext) {
+    const raw = (await loadArtifact(context, ARTIFACT.endpoints)) as Row | null;
+    const base = raw ?? { endpoints: [] };
+    // overlayArtifactEndpoints only returns null when staticData.endpoints
+    // isn't an array, which the Array.isArray guard below already rules out.
+    const overlaid =
+      Array.isArray(base.endpoints) &&
+      (base.endpoints as Row[]).some((e: Row) => e?.surface_id)
+        ? (overlayArtifactEndpoints(base, await loadLiveHealth(context)) as Row)
+        : base;
+    const url = new URL("https://graphql.local/endpoints");
+    const set = (name: string, value: unknown) => {
+      if (value !== undefined && value !== null && value !== "") {
+        url.searchParams.set(name, String(value));
+      }
+    };
+    set("netuid", args.netuid);
+    set("kind", args.kind);
+    set("layer", args.layer);
+    set("provider", args.provider);
+    set("publication_state", args.publication_state);
+    set("status", args.status);
+    set("pool_eligible", args.pool_eligible);
+    set("min_latency_ms", args.min_latency_ms);
+    set("max_latency_ms", args.max_latency_ms);
+    set("min_score", args.min_score);
+    set("max_score", args.max_score);
+    set("sort", args.sort);
+    set("order", args.order);
+    if (Array.isArray(args.fields) && args.fields.length > 0) {
+      // Keyset pagination below needs `id` (or surface_id) on every row --
+      // force it into the projection so a caller-supplied fields list can't
+      // silently break the cursor, matching the providers field's (#7888)
+      // same id-forcing rule for its own string keyset cursor.
+      const requested = args.fields as string[];
+      set(
+        "fields",
+        requested.includes("id")
+          ? requested.join(",")
+          : ["id", ...requested].join(","),
+      );
+    }
+    const transformed = applyQueryFilters(
+      overlaid as Record<string, unknown>,
+      url,
+      "endpoints",
+      [],
+    );
+    if (transformed.error) {
+      throw new GraphQLError(transformed.error.message, {
+        extensions: { code: "BAD_USER_INPUT" },
+      });
+    }
+    const rows = Array.isArray(
+      (transformed.data as Record<string, unknown>)?.endpoints,
+    )
+      ? ((transformed.data as { endpoints: Row[] }).endpoints as Row[])
+      : [];
+    const { page, total, nextCursor } = paginate(
+      rows,
+      args.limit,
+      args.cursor,
+      (e: Row) => e.id ?? e.surface_id,
+    );
+    return { items: page, total, next_cursor: nextCursor };
   },
 
   // #7868: reuse list_provider_endpoints' own loader unchanged (provider-
