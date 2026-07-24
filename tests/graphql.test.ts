@@ -8441,6 +8441,134 @@ describe("graphql — provider_endpoints (#7868, per-provider filtered endpoint 
   });
 });
 
+describe("graphql — subnet_endpoints (#7869, per-subnet filtered endpoint list)", () => {
+  const ENV = () =>
+    fixtureEnv({
+      "/metagraph/endpoints/7.json": {
+        generated_at: "2026-07-24T00:00:00.000Z",
+        netuid: 7,
+        endpoints: [
+          { id: "sn7-e1", kind: "subnet-api", status: "ok", netuid: 7 },
+          { id: "sn7-e2", kind: "openapi", status: "degraded", netuid: 7 },
+        ],
+      },
+    });
+
+  test("returns the subnet's full endpoint list unfiltered", async () => {
+    const { status, body } = await gql(
+      "{ subnet_endpoints(netuid: 7) }",
+      ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.subnet_endpoints.endpoints.length, 2);
+    assert.equal(body.data.subnet_endpoints.endpoints[0].id, "sn7-e1");
+  });
+
+  test("applies a kind filter via the shared loader", async () => {
+    const { status, body } = await gql(
+      '{ subnet_endpoints(netuid: 7, kind: "openapi") }',
+      ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.subnet_endpoints.endpoints.length, 1);
+    assert.equal(body.data.subnet_endpoints.endpoints[0].id, "sn7-e2");
+  });
+
+  test("an unsupported sort is a GraphQL error, not a silent default", async () => {
+    const { body } = await gql(
+      '{ subnet_endpoints(netuid: 7, sort: "bogus") }',
+      ENV(),
+    );
+    assert.ok(body.errors, "expected a GraphQL error");
+  });
+
+  test("a cold/absent per-subnet artifact is a GraphQL error", async () => {
+    const { body } = await gql(
+      "{ subnet_endpoints(netuid: 99) }",
+      fixtureEnv(),
+    );
+    assert.ok(body.errors, "expected a GraphQL error");
+  });
+
+  test("subnet_endpoints is weighted as a fan-out field", () => {
+    assert.equal(FIELD_COMPLEXITY.subnet_endpoints, 5);
+  });
+});
+
+describe("graphql — nested Subnet.endpoints filter args (#7869)", () => {
+  const ENV = () =>
+    fixtureEnv({
+      "/metagraph/subnets/7.json": {
+        subnet: { netuid: 7, name: "G" },
+      },
+      "/metagraph/endpoints.json": {
+        endpoints: [
+          { id: "sn7-e1", kind: "subnet-api", status: "ok", netuid: 7 },
+          { id: "sn7-e2", kind: "openapi", status: "degraded", netuid: 7 },
+        ],
+      },
+      "/metagraph/endpoints/7.json": {
+        generated_at: "2026-07-24T00:00:00.000Z",
+        netuid: 7,
+        endpoints: [
+          { id: "sn7-e1", kind: "subnet-api", status: "ok", netuid: 7 },
+          { id: "sn7-e2", kind: "openapi", status: "degraded", netuid: 7 },
+        ],
+      },
+    });
+
+  test("a filter arg routes through the shared per-subnet loader", async () => {
+    const { status, body } = await gql(
+      '{ subnet(netuid: 7) { endpoints(kind: "openapi") { id kind } } }',
+      ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(
+      body.data.subnet.endpoints.map((e: Row) => e.id),
+      ["sn7-e2"],
+    );
+  });
+
+  test("no filter args preserve the unfiltered bundled/prefetch fast path", async () => {
+    const { status, body } = await gql(
+      "{ subnet(netuid: 7) { endpoints { id } } }",
+      ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(body.data.subnet.endpoints.map((e: Row) => e.id).sort(), [
+      "sn7-e1",
+      "sn7-e2",
+    ]);
+  });
+
+  test("an invalid filter degrades to an empty list rather than erroring the parent query", async () => {
+    const { status, body } = await gql(
+      '{ subnet(netuid: 7) { netuid endpoints(sort: "bogus") { id } } }',
+      ENV(),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.equal(body.data.subnet.netuid, 7);
+    assert.deepEqual(body.data.subnet.endpoints, []);
+  });
+
+  test("a cold per-subnet endpoint artifact degrades filtered nested endpoints to an empty list", async () => {
+    const { status, body } = await gql(
+      '{ subnet(netuid: 3) { endpoints(kind: "openapi") { id } } }',
+      fixtureEnv({
+        "/metagraph/subnets/3.json": { subnet: { netuid: 3, name: "C" } },
+      }),
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    assert.deepEqual(body.data.subnet.endpoints, []);
+  });
+});
+
 describe("graphql — agent_resources (#6987, baked AI-resources index)", () => {
   test("resolves the baked AI-resources index", async () => {
     const env = fixtureEnv({

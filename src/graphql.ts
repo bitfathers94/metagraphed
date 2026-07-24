@@ -54,6 +54,10 @@ import { loadEndpointIncidentsList } from "./endpoint-incidents-mcp.ts";
 // same loadProviderEndpointsList that MCP list_provider_endpoints already calls
 // (#3289) -- not a reimplementation.
 import { loadProviderEndpointsList } from "./provider-endpoints-mcp.ts";
+// #7869: GraphQL parity for GET /api/v1/subnets/{netuid}/endpoints, reusing
+// the same loadSubnetEndpointsList that MCP list_subnet_endpoints already
+// calls -- not a reimplementation.
+import { loadSubnetEndpointsList } from "./subnet-endpoints-mcp.ts";
 // #7886: GraphQL parity for GET /api/v1/rpc/endpoints filters — reuse
 // loadRpcEndpointsList (live overlay + applyQueryFilters on the endpoints
 // collection), matching endpoint_pools / rpc_pools / provider_endpoints.
@@ -632,6 +636,7 @@ export const FIELD_COMPLEXITY = {
   surfaces: RELATIONSHIP_FIELD_COMPLEXITY,
   endpoints: RELATIONSHIP_FIELD_COMPLEXITY,
   provider_endpoints: RELATIONSHIP_FIELD_COMPLEXITY,
+  subnet_endpoints: RELATIONSHIP_FIELD_COMPLEXITY,
   endpoint_pools: RELATIONSHIP_FIELD_COMPLEXITY,
   rpc_pools: RELATIONSHIP_FIELD_COMPLEXITY,
   endpoint_incidents: RELATIONSHIP_FIELD_COMPLEXITY,
@@ -1214,7 +1219,16 @@ function subnetNode(identity: Row, prefetch: Row = {}) {
     economics: (_args: unknown, context: GqlContext) =>
       loadSubnetEconomics(context, netuid),
     surfaces: bundledOr(prefetch.surfaces, loadSubnetSurfaces),
-    endpoints: bundledOr(prefetch.endpoints, loadSubnetEndpoints),
+    // #7869: any filter/sort/page arg routes through loadSubnetEndpointsList
+    // (subnet-endpoints-mcp.ts, full REST parity) instead of the unfiltered
+    // bundled/prefetch fast path -- matching the provider node's endpoints
+    // field (loadProviderEndpoints) convention of degrading a cold artifact
+    // or invalid filter to an empty list rather than erroring the parent
+    // Subnet query.
+    endpoints: (args: Row, context: GqlContext) =>
+      args && Object.keys(args).length > 0
+        ? loadSubnetEndpointsNested(context, netuid, args)
+        : bundledOr(prefetch.endpoints, loadSubnetEndpoints)(args, context),
   };
 }
 
@@ -1386,6 +1400,30 @@ function loadSubnetSurfaces(context: GqlContext, netuid: number) {
 
 function loadSubnetEndpoints(context: GqlContext, netuid: number) {
   return loadRows(context, ARTIFACT.endpoints, "endpoints", netuid);
+}
+
+// #7869: a subnet's filtered endpoint rows, reusing loadSubnetEndpointsList
+// (the same loader MCP list_subnet_endpoints / REST
+// /api/v1/subnets/{netuid}/endpoints call) unchanged over the baked
+// per-subnet artifact. A cold/absent per-subnet artifact or an invalid
+// filter (the loader's throw) degrades to an empty list rather than erroring
+// the parent Subnet query -- the same schema-stable convention
+// loadProviderEndpoints follows for the provider node's own endpoints field.
+async function loadSubnetEndpointsNested(
+  context: GqlContext,
+  netuid: number,
+  args: Row,
+) {
+  try {
+    const result = await loadSubnetEndpointsList(
+      mcpCtx(context),
+      { ...args, netuid },
+      { readArtifact },
+    );
+    return result.endpoints;
+  } catch {
+    return [];
+  }
 }
 
 async function loadProviderSubnets(context: GqlContext, netuids: number[]) {
@@ -2826,6 +2864,17 @@ const rootValue = {
   // default" convention.
   provider_endpoints(args: Row, context: GqlContext) {
     return loadProviderEndpointsList(mcpCtx(context), args, { readArtifact });
+  },
+
+  // #7869: reuse list_subnet_endpoints' own loader unchanged (subnet-
+  // endpoints-mcp.ts) -- the same read + filter/sort/page the REST route and
+  // MCP tool run over the baked per-subnet artifact. It validates its own
+  // args and throws on an invalid one (or a cold/absent per-subnet artifact)
+  // -- that throw becomes a GraphQL error, matching provider_endpoints/
+  // endpoint_pools' "an unsupported filter/sort is a GraphQL error, not a
+  // silently substituted default" convention.
+  subnet_endpoints(args: Row, context: GqlContext) {
+    return loadSubnetEndpointsList(mcpCtx(context), args, { readArtifact });
   },
 
   // #6985: reuse list_endpoint_pools's/list_rpc_pools's/list_endpoint_incidents's

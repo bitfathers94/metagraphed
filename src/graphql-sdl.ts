@@ -267,6 +267,22 @@ export const SDL = /* GraphQL */ `
       limit: Int
       cursor: String
     ): JSON
+    "One subnet's endpoint rows with full REST filter parity: filter by kind/layer/publication_state/status, latency and score ranges, sort + order, and page with limit/cursor. Composed live from the baked /metagraph/endpoints/{netuid}.json artifact via the same loader list_subnet_endpoints/GET /api/v1/subnets/{netuid}/endpoints already call. An unsupported filter/sort or a cold/absent snapshot is a GraphQL error (matching REST/MCP), not a silently substituted default. cursor is Int (not String) to match the loader's own numeric-cursor validation, mirroring endpoint_pools/rpc_pools. Opaque JSON passed through verbatim, matching the list_subnet_endpoints MCP/REST shape. Distinct from the nested Subnet.endpoints field (unfiltered fast path unless filter args are supplied). Mirrors GET /api/v1/subnets/{netuid}/endpoints."
+    subnet_endpoints(
+      netuid: Int!
+      kind: String
+      layer: String
+      publication_state: String
+      status: String
+      min_latency_ms: Int
+      max_latency_ms: Int
+      min_score: Float
+      max_score: Float
+      sort: String
+      order: String
+      limit: Int
+      cursor: Int
+    ): JSON
     "Generalized endpoint pool scores -- each pool's kind, eligible/total endpoint count, and probe-derived routing score. Filter by id/kind, threshold with min_/max_eligible_count and min_/max_endpoint_count, sort with sort/order, and page with limit (1-100)/cursor. An invalid filter/sort/limit/cursor is a GraphQL error, not a silently substituted default. Mirrors GET /api/v1/endpoint-pools."
     endpoint_pools(
       id: String
@@ -831,8 +847,21 @@ export const SDL = /* GraphQL */ `
     economics: SubnetEconomics
     "Curated public interface surfaces of this subnet."
     surfaces: [Surface!]!
-    "Endpoint/resource registry rows for this subnet."
-    endpoints: [Endpoint!]!
+    "Endpoint/resource registry rows for this subnet. With no args, the unfiltered bundled/prefetch list (matching prior behavior); any filter/sort/page arg routes through the same loader subnet_endpoints uses instead, degrading a cold snapshot or invalid filter to an empty list rather than erroring the parent Subnet query (matching Provider.endpoints' convention)."
+    endpoints(
+      kind: String
+      layer: String
+      publication_state: String
+      status: String
+      min_latency_ms: Int
+      max_latency_ms: Int
+      min_score: Float
+      max_score: Float
+      sort: String
+      order: String
+      limit: Int
+      cursor: Int
+    ): [Endpoint!]!
   }
 
   type ProviderList {
