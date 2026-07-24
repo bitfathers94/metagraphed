@@ -3516,6 +3516,114 @@ describe("graphql — extrinsics / extrinsic (#5580, Postgres-tier feed)", () =>
     assert.equal(called, false);
   });
 
+  test("extrinsics: call_hash/block_start/block_end/from/to are forwarded as query params to the Postgres tier (#7872)", async () => {
+    let capturedUrl: URL | undefined;
+    const env = {
+      METAGRAPH_EXTRINSICS_SOURCE: "postgres",
+      DATA_API: {
+        fetch: async (req: Request) => {
+          capturedUrl = new URL(req.url);
+          return Response.json({
+            schema_version: 1,
+            extrinsic_count: 0,
+            limit: 20,
+            offset: 0,
+            next_cursor: null,
+            extrinsics: [],
+          });
+        },
+      },
+    };
+    await gql(
+      `{ extrinsics(
+          call_module: "Multisig"
+          call_hash: "0x${"a".repeat(64)}"
+          block_start: 100
+          block_end: 500
+          from: "1750000000000"
+          to: "1760000000000"
+        ) { total } }`,
+      env as unknown as Env,
+    );
+    assert.equal(capturedUrl!.pathname, "/api/v1/extrinsics");
+    assert.equal(
+      capturedUrl!.searchParams.get("call_hash"),
+      `0x${"a".repeat(64)}`,
+    );
+    assert.equal(capturedUrl!.searchParams.get("block_start"), "100");
+    assert.equal(capturedUrl!.searchParams.get("block_end"), "500");
+    assert.equal(capturedUrl!.searchParams.get("from"), "1750000000000");
+    assert.equal(capturedUrl!.searchParams.get("to"), "1760000000000");
+  });
+
+  test("extrinsics: unset call_hash/block_start/block_end/from/to are omitted from the query params (#7872)", async () => {
+    let capturedUrl: URL | undefined;
+    const env = {
+      METAGRAPH_EXTRINSICS_SOURCE: "postgres",
+      DATA_API: {
+        fetch: async (req: Request) => {
+          capturedUrl = new URL(req.url);
+          return Response.json({
+            schema_version: 1,
+            extrinsic_count: 0,
+            limit: 20,
+            offset: 0,
+            next_cursor: null,
+            extrinsics: [],
+          });
+        },
+      },
+    };
+    await gql(
+      `{ extrinsics(signer: "5Solo") { total } }`,
+      env as unknown as Env,
+    );
+    assert.equal(capturedUrl!.searchParams.get("signer"), "5Solo");
+    assert.equal(capturedUrl!.searchParams.has("call_hash"), false);
+    assert.equal(capturedUrl!.searchParams.has("block_start"), false);
+    assert.equal(capturedUrl!.searchParams.has("block_end"), false);
+    assert.equal(capturedUrl!.searchParams.has("from"), false);
+    assert.equal(capturedUrl!.searchParams.has("to"), false);
+  });
+
+  test("introspection: extrinsics exposes the new REST-parity filter args with the right scalar types (#7872)", async () => {
+    const { status, body } = await gql(
+      `{ __type(name: "Query") { fields {
+          name
+          args { name type { kind name ofType { kind name } } }
+        } } }`,
+    );
+    assert.equal(status, 200);
+    assert.equal(body.errors, undefined);
+    const extrinsics = body.data.__type.fields.find(
+      (f: Row) => f.name === "extrinsics",
+    );
+    const argType = (name: string) => {
+      const a = extrinsics.args.find((x: Row) => x.name === name);
+      assert.ok(a, `expected a ${name} arg on extrinsics`);
+      return a.type;
+    };
+    assert.deepEqual(argType("call_hash"), {
+      kind: "SCALAR",
+      name: "String",
+      ofType: null,
+    });
+    for (const name of ["block_start", "block_end"]) {
+      assert.deepEqual(argType(name), {
+        kind: "SCALAR",
+        name: "Int",
+        ofType: null,
+      });
+    }
+    for (const name of ["from", "to"]) {
+      assert.deepEqual(argType(name), {
+        kind: "SCALAR",
+        name: "String",
+        ofType: null,
+      });
+    }
+  });
+
   test("extrinsic: unresolved ref returns extrinsic:null, never a GraphQL error", async () => {
     const ref = `0x${"a".repeat(64)}`;
     const { status, body } = await gql(

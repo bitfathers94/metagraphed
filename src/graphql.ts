@@ -3656,7 +3656,12 @@ const rootValue = {
       signer,
       call_module: callModule,
       call_function: callFunction,
+      call_hash: callHash,
       success,
+      block_start: blockStart,
+      block_end: blockEnd,
+      from,
+      to,
     }: Row,
     context: GqlContext,
   ) {
@@ -3675,7 +3680,15 @@ const rootValue = {
     if (signer) params.set("signer", signer);
     if (callModule) params.set("call_module", callModule);
     if (callFunction) params.set("call_function", callFunction);
+    if (callHash) params.set("call_hash", callHash);
     if (success != null) params.set("success", String(success));
+    // #7872: block_start/block_end are block heights (Int, within range); from/to
+    // are observed_at epoch-ms and overflow GraphQL Int's 32 bits, so they are
+    // String args passed verbatim (mirroring blocks' from/to, #7870).
+    if (blockStart != null) params.set("block_start", String(blockStart));
+    if (blockEnd != null) params.set("block_end", String(blockEnd));
+    if (from != null) params.set("from", from);
+    if (to != null) params.set("to", to);
     const data =
       ((await tryPostgresTier(
         context.env,

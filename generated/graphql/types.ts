@@ -2508,7 +2508,7 @@ export type Query = {
   evm_address_mapping?: Maybe<EvmAddressMapping>;
   /** One extrinsic by hash or composite block_number-extrinsic_index ref; extrinsic is null when the ref doesn't resolve (schema-stable, never a GraphQL error). Mirrors GET /api/v1/extrinsics/{ref}. */
   extrinsic?: Maybe<ExtrinsicDetail>;
-  /** Recent-extrinsic feed (newest first), optionally filtered. Mirrors GET /api/v1/extrinsics. */
+  /** Recent-extrinsic feed (newest first), optionally filtered. call_hash matches within call_args (pair with call_module for a narrow scan); block_start/block_end (inclusive block-height range) and from/to (observed_at epoch-ms range — String args because epoch-ms exceeds GraphQL Int's 32-bit range, matching blocks) narrow further, the same filter set MCP list_extrinsics and GET /api/v1/extrinsics accept. Mirrors GET /api/v1/extrinsics. */
   extrinsics: ExtrinsicList;
   /** The recorded response fixtures for registered surfaces, used to replay/verify a surface without calling it. Null when no fixture index has been baked in this environment. Opaque JSON passed through verbatim, matching the list_fixtures MCP/REST shape. Mirrors GET /api/v1/fixtures. */
   fixtures?: Maybe<Scalars['JSON']['output']>;
@@ -3158,13 +3158,18 @@ export type QueryExtrinsicArgs = {
 
 export type QueryExtrinsicsArgs = {
   block?: InputMaybe<Scalars['Int']['input']>;
+  block_end?: InputMaybe<Scalars['Int']['input']>;
+  block_start?: InputMaybe<Scalars['Int']['input']>;
   call_function?: InputMaybe<Scalars['String']['input']>;
+  call_hash?: InputMaybe<Scalars['String']['input']>;
   call_module?: InputMaybe<Scalars['String']['input']>;
   cursor?: InputMaybe<Scalars['String']['input']>;
+  from?: InputMaybe<Scalars['String']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
   signer?: InputMaybe<Scalars['String']['input']>;
   success?: InputMaybe<Scalars['Boolean']['input']>;
+  to?: InputMaybe<Scalars['String']['input']>;
 };
 
 
