@@ -79,14 +79,19 @@ export const SDL = /* GraphQL */ `
     agent_resources: JSON
     "Curation states by subnet — each subnet's registry curation level and review state. Null when the artifact has not been baked. Opaque JSON passed through verbatim, matching the list_curation MCP/REST shape. Mirrors GET /api/v1/curation."
     curation: JSON
-    "The discovered candidate-surface ledger: every machine-discovered surface awaiting review, with its subnet (netuid), kind, provider, and review state. Filter by netuid/kind/provider/state and page with limit/cursor, exactly like the REST route. Resolves to {items,total,next_cursor} as opaque JSON. Mirrors GET /api/v1/candidates."
+    "The discovered candidate-surface ledger: every machine-discovered surface awaiting review, with its subnet (netuid), kind, provider, review state, and confidence. Filter by netuid/kind/provider/state, plus id (exact match) and confidence (low/medium/high); sort with sort + order; project with fields; and page with limit (1-1000) / cursor, exactly like the REST route -- an unsupported filter/sort value is a GraphQL error, not a silently substituted default. Resolves to the same pagination-meta envelope REST returns as opaque JSON. Mirrors GET /api/v1/candidates."
     candidates(
       netuid: Int
       kind: String
       provider: String
       state: String
+      id: String
+      confidence: String
+      sort: String
+      order: String
+      fields: String
       limit: Int
-      cursor: String
+      cursor: Int
     ): JSON
     "Run one maintainer-curated saved-query template by id, with its template-defined params object -- the same parameterized query library REST and the run_saved_query MCP tool execute. Resolves to {query_id, params, data} as opaque JSON. An unknown id or invalid params is a BAD_USER_INPUT error listing the valid template ids, not a silently substituted default. Mirrors GET /api/v1/queries/{id}."
     saved_query(id: String!, params: JSON): JSON

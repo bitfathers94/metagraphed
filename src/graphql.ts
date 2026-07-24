@@ -62,6 +62,10 @@ import { loadRpcEndpointsList } from "./rpc-endpoints-mcp.ts";
 // authority/sort/order/fields + limit/cursor), reusing loadProvidersList that
 // MCP list_providers already calls -- not a reimplementation.
 import { loadProvidersList } from "./providers-mcp.ts";
+// #7871: GraphQL parity for candidates(...) filters/sort/page, reusing
+// loadCandidatesList that MCP list_candidates already calls -- not a
+// reimplementation. Mirrors the sibling gaps(...) field exactly.
+import { loadCandidatesList } from "./candidates-mcp.ts";
 // #7167: GraphQL parity for the /api/v1/review/* contributor-review family,
 // reusing each list_* MCP loader unchanged (same artifact read, filter, sort,
 // and page logic REST and MCP already use) -- not a reimplementation.
@@ -1676,29 +1680,15 @@ const rootValue = {
     }
   },
 
-  // #6991: five registry-meta routes that had an MCP tool but no GraphQL
-  // field. Each reads the same baked artifact (and applies the same overlay /
-  // builder) its MCP tool does, so REST, MCP, and GraphQL can't drift.
-  async candidates(
-    { netuid, kind, provider, state, limit, cursor }: Row,
-    context: GqlContext,
-  ) {
-    const data = await loadArtifact(context, "/metagraph/candidates.json");
-    const all = Array.isArray(data?.candidates) ? data.candidates : [];
-    const filtered = all.filter(
-      (c: Row) =>
-        (netuid == null || c.netuid === netuid) &&
-        (kind == null || c.kind === kind) &&
-        (provider == null || c.provider === provider) &&
-        (state == null || c.state === state),
-    );
-    const { page, total, nextCursor } = paginate(
-      filtered,
-      limit,
-      cursor,
-      (c: Row) => c.id ?? c.key,
-    );
-    return { items: page, total, next_cursor: nextCursor };
+  // #7871: candidates(...) reuses loadCandidatesList -- the same loader
+  // list_candidates MCP calls -- instead of the earlier inline filter/paginate
+  // pass, so its id/confidence filters and sort/order come straight from the
+  // REST allowlists and this field can't drift from GET /api/v1/candidates.
+  // Mirrors the sibling gaps(...) field exactly: an unsupported filter/sort
+  // value (or a cold catalog artifact) is a GraphQL error, not a silently
+  // substituted default.
+  candidates(args: Row, context: GqlContext) {
+    return loadCandidatesList(mcpCtx(context), args, { readArtifact });
   },
 
   fixtures(_args: unknown, context: GqlContext) {
