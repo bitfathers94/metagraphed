@@ -24,6 +24,15 @@ const OLD_COMPONENT_FILES = [
   // since no earlier batch's components lived there.
   "schemas/components/09-schemas-adapters-r2.schema.json",
   "schemas/components/11-review-intake.schema.json",
+  // Batch 10 (#8064) additions: Provider(s)/ProviderEndpoints, the search/
+  // freshness/source-health/source-snapshots family, and the api-index/
+  // contracts/openapi/changelog/build-summary family live in these three
+  // files, previously never read by this script since no earlier batch's
+  // components lived there.
+  "schemas/components/02-envelopes.schema.json",
+  "schemas/components/03-providers.schema.json",
+  "schemas/components/08-evidence-search-sources.schema.json",
+  "schemas/components/10-contracts-build.schema.json",
 ];
 
 const MAX_SAFE_INT = Number.MAX_SAFE_INTEGER;
@@ -134,6 +143,20 @@ function normalize(
     // ever declare `format` alone. The pattern is a strict superset of what
     // `format` already implies (bucket c: stricter, not different).
     if (key === "pattern" && typeof obj.format === "string") {
+      continue;
+    }
+
+    // RegExp#source always backslash-escapes a literal "/" (so the source
+    // string would still be valid inside a /.../ literal) -- there's no way
+    // to construct a JS RegExp whose .source omits this, regardless of how
+    // the pattern was written. Hand-edited components never escape "/" (bare
+    // "^/metagraph/" etc., types-epic B batch 10/#8064's artifact_path/path/
+    // schema_ref patterns). `\/` and `/` are exactly equivalent inside a
+    // regex pattern outside of a literal's own delimiters, so unescape
+    // before comparing -- purely a JS-serialization artifact, not a real
+    // difference.
+    if (key === "pattern" && typeof value === "string") {
+      out[key] = value.replace(/\\\//g, "/");
       continue;
     }
 

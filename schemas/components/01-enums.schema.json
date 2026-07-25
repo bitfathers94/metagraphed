@@ -8,15 +8,6 @@
       "CacheProfile": {
         "enum": ["short", "standard", "static"]
       },
-      "ProviderKind": {
-        "enum": [
-          "subnet-team",
-          "infrastructure-provider",
-          "data-provider",
-          "docs-provider",
-          "registry"
-        ]
-      },
       "EndpointPublicationState": {
         "enum": [
           "candidate",

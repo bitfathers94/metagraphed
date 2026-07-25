@@ -44,6 +44,19 @@ export const HealthStatusSchema = z.enum([
 ]);
 export type HealthStatus = z.infer<typeof HealthStatusSchema>;
 
+// Referenced by Provider (routes/providers.ts) and SourceHealthProvider
+// (routes/meta-index.ts) -- both types-epic B batch 10 (#8064) additions,
+// hoisted here per this file's own convention above rather than
+// hand-maintained twice.
+export const ProviderKindSchema = z.enum([
+  "subnet-team",
+  "infrastructure-provider",
+  "data-provider",
+  "docs-provider",
+  "registry",
+]);
+export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+
 export const PartnershipTierSchema = z.enum(["pilot"]);
 export type PartnershipTier = z.infer<typeof PartnershipTierSchema>;
 

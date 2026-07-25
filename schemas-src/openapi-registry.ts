@@ -294,6 +294,40 @@ import {
   ReviewProfileCompletenessArtifactSchema,
   SubnetGapsArtifactSchema,
 } from "./routes/review-gaps-profile.ts";
+import {
+  ApiIndexArtifactSchema,
+  BuildSummaryArtifactSchema,
+  ChangelogArtifactSchema,
+  ContractsArtifactSchema,
+  OpenApiArtifactSchema,
+} from "./routes/contracts-build.ts";
+import {
+  ProviderArtifactSchema,
+  ProviderEndpointsArtifactSchema,
+  ProvidersArtifactSchema,
+} from "./routes/providers.ts";
+import {
+  SubnetProfileArtifactSchema,
+  SubnetProfilesArtifactSchema,
+} from "./routes/profiles.ts";
+import {
+  AgentCatalogArtifactSchema,
+  AgentCatalogSubnetArtifactSchema,
+  AgentResourcesArtifactSchema,
+} from "./routes/agent-catalog.ts";
+import {
+  RpcEndpointsArtifactSchema,
+  RpcPoolsArtifactSchema,
+  RpcUsageArtifactSchema,
+} from "./routes/rpc-meta.ts";
+import {
+  FreshnessArtifactSchema,
+  SchemaIndexArtifactSchema,
+  SearchArtifactSchema,
+  SearchIndexArtifactSchema,
+  SourceHealthArtifactSchema,
+  SourceSnapshotsArtifactSchema,
+} from "./routes/meta-index.ts";
 
 export const openApiComponentRegistry = z.registry<{ id: string }>();
 
@@ -549,6 +583,47 @@ register(JsonObjectSchema, "JsonObject");
 register(CoverageDepthRowSchema, "CoverageDepthRow");
 register(CountMapSchema, "CountMap");
 
+// Batch 10 (#8064) additions. Only the 22 top-level route artifacts (each
+// required -- schemaRefForArtifactPath binds its route to exactly this
+// name) are registered here. Every sub-shape this batch modeled
+// (ArtifactContractEntry/ApiRoute/ApiQueryParameter/ResponseEnvelopeContract/
+// ArtifactDiffEntry/CoverageDelta/ArtifactSizeBudget/Provider/ProviderKind/
+// RpcEndpoint/RpcPool/RpcPoolEndpoint/EndpointProviderScore/SubnetDetail/
+// AgentReadinessStatus/AgentServiceSchemaSource/AgentServiceFixtureStatus/
+// SurfaceFixtureReference/SearchDocument/SearchIndexDocument/FreshnessSource/
+// SourceHealthProvider/SourceSnapshot/SchemaIndexEntry) is referenced only
+// by this batch's own converted routes, all converted together here (verified
+// via repo-wide $ref grep) -- same as batch 7/8's treatment, see
+// OPENAPI_ZOD_ORPHANED_COMPONENT_NAMES below. EndpointSummary and
+// CacheProfile are deliberately NOT here despite being modeled/reused by this
+// batch (ProviderEndpointsArtifact and ApiRoute respectively) -- both still
+// have OTHER referrers outside this batch (EndpointsArtifact/
+// SubnetEndpointsArtifact for EndpointSummary; ResponseMeta for CacheProfile,
+// all still hand-edited) so their hand-edited component keys stay untouched,
+// unregistered, serving those other routes exactly as before.
+register(ApiIndexArtifactSchema, "ApiIndexArtifact");
+register(ContractsArtifactSchema, "ContractsArtifact");
+register(OpenApiArtifactSchema, "OpenApiArtifact");
+register(ChangelogArtifactSchema, "ChangelogArtifact");
+register(BuildSummaryArtifactSchema, "BuildSummaryArtifact");
+register(ProvidersArtifactSchema, "ProvidersArtifact");
+register(ProviderArtifactSchema, "ProviderArtifact");
+register(ProviderEndpointsArtifactSchema, "ProviderEndpointsArtifact");
+register(SubnetProfilesArtifactSchema, "SubnetProfilesArtifact");
+register(SubnetProfileArtifactSchema, "SubnetProfileArtifact");
+register(AgentCatalogArtifactSchema, "AgentCatalogArtifact");
+register(AgentCatalogSubnetArtifactSchema, "AgentCatalogSubnetArtifact");
+register(AgentResourcesArtifactSchema, "AgentResourcesArtifact");
+register(RpcEndpointsArtifactSchema, "RpcEndpointsArtifact");
+register(RpcPoolsArtifactSchema, "RpcPoolsArtifact");
+register(RpcUsageArtifactSchema, "RpcUsageArtifact");
+register(SearchArtifactSchema, "SearchArtifact");
+register(SearchIndexArtifactSchema, "SearchIndexArtifact");
+register(FreshnessArtifactSchema, "FreshnessArtifact");
+register(SourceHealthArtifactSchema, "SourceHealthArtifact");
+register(SourceSnapshotsArtifactSchema, "SourceSnapshotsArtifact");
+register(SchemaIndexArtifactSchema, "SchemaIndexArtifact");
+
 // The component names this registry owns -- used by the generator to know
 // which hand-edited schemas/components/*.schema.json keys to drop (they'd
 // otherwise shadow the generated ones) and by the diff-audit script to know
@@ -724,6 +799,29 @@ export const OPENAPI_ZOD_COMPONENT_NAMES = [
   "JsonObject",
   "CoverageDepthRow",
   "CountMap",
+  // Batch 10 (#8064) additions.
+  "ApiIndexArtifact",
+  "ContractsArtifact",
+  "OpenApiArtifact",
+  "ChangelogArtifact",
+  "BuildSummaryArtifact",
+  "ProvidersArtifact",
+  "ProviderArtifact",
+  "ProviderEndpointsArtifact",
+  "SubnetProfilesArtifact",
+  "SubnetProfileArtifact",
+  "AgentCatalogArtifact",
+  "AgentCatalogSubnetArtifact",
+  "AgentResourcesArtifact",
+  "RpcEndpointsArtifact",
+  "RpcPoolsArtifact",
+  "RpcUsageArtifact",
+  "SearchArtifact",
+  "SearchIndexArtifact",
+  "FreshnessArtifact",
+  "SourceHealthArtifact",
+  "SourceSnapshotsArtifact",
+  "SchemaIndexArtifact",
 ] as const;
 
 // SubnetEconomics has no registry entry (see header) but its hand-edited
@@ -917,4 +1015,42 @@ export const OPENAPI_ZOD_ORPHANED_COMPONENT_NAMES = [
   "ReviewEnrichmentTarget",
   "ReviewEnrichmentTargetGroup",
   "ReviewProfileCompletenessEntry",
+  // Batch 10 (#8064) additions: ArtifactContractEntry/ApiRoute/
+  // ApiQueryParameter/ResponseEnvelopeContract/ArtifactDiffEntry/
+  // CoverageDelta/ArtifactSizeBudget/Provider/ProviderKind/RpcEndpoint/
+  // RpcPool/RpcPoolEndpoint/EndpointProviderScore/SubnetDetail/
+  // AgentReadinessStatus/AgentServiceSchemaSource/AgentServiceFixtureStatus/
+  // SurfaceFixtureReference/SearchDocument/SearchIndexDocument/
+  // FreshnessSource/SourceHealthProvider/SourceSnapshot/SchemaIndexEntry are
+  // each referenced only by this batch's own converted routes, all converted
+  // together here (verified via repo-wide $ref grep) -- same pattern as
+  // batch 7/8's single-use sub-shapes above. ProviderKind's only two
+  // referrers (Provider, SourceHealthProvider) are both this batch's own, so
+  // it becomes fully orphaned too, unlike CacheProfile/EndpointSummary
+  // (deliberately NOT here -- see OPENAPI_ZOD_COMPONENT_NAMES's batch 10
+  // comment for why those two stay hand-edited and untouched).
+  "ArtifactContractEntry",
+  "ApiRoute",
+  "ApiQueryParameter",
+  "ResponseEnvelopeContract",
+  "ArtifactDiffEntry",
+  "CoverageDelta",
+  "ArtifactSizeBudget",
+  "Provider",
+  "ProviderKind",
+  "RpcEndpoint",
+  "RpcPool",
+  "RpcPoolEndpoint",
+  "EndpointProviderScore",
+  "SubnetDetail",
+  "AgentReadinessStatus",
+  "AgentServiceSchemaSource",
+  "AgentServiceFixtureStatus",
+  "SurfaceFixtureReference",
+  "SearchDocument",
+  "SearchIndexDocument",
+  "FreshnessSource",
+  "SourceHealthProvider",
+  "SourceSnapshot",
+  "SchemaIndexEntry",
 ] as const;
