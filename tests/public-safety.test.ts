@@ -376,6 +376,39 @@ describe("captured-fixture body scan", () => {
     );
   });
 
+  test("flags a bare Telegram bot token", async () => {
+    // Numeric bot id + colon + 35-char secret. Assemble the two parts at
+    // runtime so the source never commits a contiguous token-shaped literal
+    // (same precedent as the AWS access key id test above).
+    const botId = "123456789";
+    const secret = "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawX";
+    await fs.writeFile(TEST_PUBLIC_PATH, `${botId}:${secret}\n`, "utf8");
+    const output = runScanOutput();
+    assert.ok(
+      output.includes(`${TEST_PUBLIC_FILE}:1: telegram bot token`),
+      `Telegram bot token must be flagged; got:\n${output}`,
+    );
+  });
+
+  test("flags a Discord webhook URL", async () => {
+    // A Discord webhook URL is itself a bearer credential -- no separate
+    // auth is needed to post to the channel it targets.
+    const urls = [
+      "https://discord.com/api/webhooks/123456789012345678/fake-webhook-token",
+      "https://discordapp.com/api/webhooks/123456789012345678/fake-webhook-token",
+    ];
+    await fs.writeFile(TEST_PUBLIC_PATH, `${urls.join("\n")}\n`, "utf8");
+    const output = runScanOutput();
+    for (const [index] of urls.entries()) {
+      assert.ok(
+        output.includes(
+          `${TEST_PUBLIC_FILE}:${index + 1}: discord webhook url`,
+        ),
+        `Discord webhook URL on line ${index + 1} must be flagged; got:\n${output}`,
+      );
+    }
+  });
+
   test("still flags a hard secret hidden in a fixture body value", async () => {
     await writeTestFixture({
       note: "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789",
