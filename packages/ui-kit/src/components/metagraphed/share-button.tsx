@@ -105,10 +105,10 @@ export function ShareButton({
             : bare
               ? iconOnly
                 ? "inline-flex items-center justify-center rounded p-1 min-h-8 text-ink-muted hover:text-ink-strong hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                : "inline-flex items-center gap-1.5 rounded px-2 py-1 min-h-8 mg-type-caption font-medium text-ink-muted hover:text-ink-strong hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                : "inline-flex items-center gap-1.5 rounded px-1.5 sm:px-2 py-1 min-h-8 mg-type-caption font-medium text-ink-muted hover:text-ink-strong hover:bg-surface transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               : iconOnly
                 ? "inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-ink-muted hover:border-ink/30 hover:text-ink-strong transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                : "inline-flex items-center gap-1.5 rounded border border-border bg-card px-2.5 py-1 mg-type-caption font-medium text-ink hover:border-ink/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                : "inline-flex items-center gap-1.5 rounded border border-border bg-card px-1.5 sm:px-2.5 py-1 mg-type-caption font-medium text-ink hover:border-ink/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className,
         )}
       >
@@ -129,7 +129,11 @@ export function ShareButton({
             }
           />
         )}
-        {hideText ? null : copied ? "Link copied" : label}
+        {hideText ? null : (
+          <span className="hidden sm:inline">
+            {copied ? "Link copied" : label}
+          </span>
+        )}
       </button>
       {/* Screen-reader status — the shared region every copy control now uses. */}
       <CopyStatusRegion>{announcement}</CopyStatusRegion>
