@@ -1,8 +1,9 @@
 name: Sync MCP server version
 
 # Auto-opens a chore/sync-mcp-version PR whenever the MCP tool registry
-# (src/mcp-server.ts) changes on main without a matching MCP_SERVER_VERSION
-# bump. This decouples the version bump from the contributor PR, the same
+# (src/mcp-server.ts) or the MCP tool schemas it imports (schemas-src/mcp-tools/)
+# change on main without a matching MCP_SERVER_VERSION bump. This decouples
+# the version bump from the contributor PR, the same
 # way sync-client-version.yml already does for the published SDK --
 # eliminating both the manual toil (every "add an MCP tool" PR previously
 # had to hand-edit src/mcp-server.ts's MCP_SERVER_VERSION constant AND
@@ -59,15 +60,39 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # Every watched path below must exist at HEAD -- git diff --quiet reports
+      # "no difference" for a path that exists at neither ref, which is
+      # exactly how this check silently stopped running for every MCP tool
+      # change merged after #7857 renamed src/mcp-server.mjs to
+      # src/mcp-server.ts without repointing this workflow (fixed in #8473),
+      # with CI staying green the whole time. Fail loudly here instead of
+      # letting a missing/renamed path masquerade as "nothing changed".
+      - name: Verify watched paths exist
+        run: |
+          for path in src/mcp-server.ts schemas-src/mcp-tools; do
+            if [ ! -e "$path" ]; then
+              echo "::error::watched path '$path' no longer exists -- update sync-mcp-version.yml" >&2
+              exit 1
+            fi
+          done
+
       # Real change-detection: every MCP tool addition necessarily imports
-      # and registers the new tool in src/mcp-server.ts's MCP_TOOLS array,
-      # so that file changing since the last bump is a reliable, sufficient
-      # signal -- the same pragmatic "watch the one file everything routes
-      # through" approach sync-client-version.yml uses for its own three
-      # contract paths, not a precise "did the tool count specifically
-      # change" AST diff. No prior bump commit found (first run ever) or a
-      # non-empty diff since the last one ⇒ proceed; an empty diff ⇒ skip
-      # every subsequent step via its `if:` so the job still exits cleanly.
+      # and registers the new tool in src/mcp-server.ts's MCP_TOOLS array, and
+      # a schema-only change to an existing tool necessarily edits its schema
+      # module under schemas-src/mcp-tools/ (imported directly by
+      # src/mcp-server.ts for nearly every tool's input/output schema), so
+      # those two paths changing since the last bump is a reliable,
+      # sufficient signal -- the same pragmatic "watch the files everything
+      # routes through" approach sync-client-version.yml uses for its own
+      # three contract paths, not a precise "did the tool count specifically
+      # change" AST diff. Scoped to schemas-src/mcp-tools/ specifically, not
+      # all of schemas-src/ -- schemas-src/routes/, shared.ts, envelope.ts,
+      # and openapi-registry.ts back the REST/OpenAPI contract and are
+      # imported by REST route schemas too, so watching them here would bump
+      # the MCP server version on changes that never touched the MCP tool
+      # surface. No prior bump commit found (first run ever) or a non-empty
+      # diff since the last one ⇒ proceed; an empty diff ⇒ skip every
+      # subsequent step via its `if:` so the job still exits cleanly.
       - name: Check for MCP tool changes since the last version bump
         id: mcp-diff
         run: |
@@ -77,11 +102,11 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "last MCP version bump commit: ${last_bump}"
-            if git diff --quiet "${last_bump}" HEAD -- src/mcp-server.ts; then
-              echo "no MCP tool registry changes since ${last_bump}; skipping version bump"
+            if git diff --quiet "${last_bump}" HEAD -- src/mcp-server.ts schemas-src/mcp-tools; then
+              echo "no MCP tool registry or schema changes since ${last_bump}; skipping version bump"
               echo "changed=false" >> "$GITHUB_OUTPUT"
             else
-              echo "MCP tool registry changes found since ${last_bump}"
+              echo "MCP tool registry or schema changes found since ${last_bump}"
               echo "changed=true" >> "$GITHUB_OUTPUT"
             fi
           fi
