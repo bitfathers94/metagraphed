@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { safeExternalUrl } from "./external-link";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ExternalLink, safeExternalUrl } from "./external-link";
 
 describe("safeExternalUrl", () => {
   it("allows ordinary public http(s) URLs", () => {
@@ -43,5 +45,22 @@ describe("safeExternalUrl", () => {
     for (const href of unsafe) {
       expect(safeExternalUrl(href), href).toBeUndefined();
     }
+  });
+});
+
+describe("ExternalLink children wrapper (#8537)", () => {
+  it("gives the children wrapper span both min-w-0 and truncate", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(ExternalLink, {
+        href: "https://example.com/",
+        children:
+          "a very long label that should truncate instead of escaping the flex row",
+      }),
+    );
+    const wrapperMatch = markup.match(/<span class="[^"]*">/);
+    expect(wrapperMatch).not.toBeNull();
+    const wrapperTag = wrapperMatch![0];
+    expect(wrapperTag).toContain("min-w-0");
+    expect(wrapperTag).toContain("truncate");
   });
 });
