@@ -6,6 +6,7 @@ import {
   formatRelative,
   relativeFromDiff,
   isStaleFreshness,
+  formatNumber,
   formatTao,
   formatUsdApprox,
   subnetAgeDays,
@@ -215,6 +216,53 @@ describe("formatUsdApprox", () => {
     expect(formatUsdApprox(1, 1.234)).toBe("$1.23");
     expect(formatUsdApprox(0.01, 5)).toBe("$0.05");
     expect(formatUsdApprox(0.001, 1)).toBe("$0.001");
+  });
+
+  it("never flattens a sub-cent amount to $0", () => {
+    // 0.000166248 τ at $1/τ used to pre-round to "$0" via toFixed(4) -- the
+    // sig-digit tier now keeps it visible.
+    expect(formatUsdApprox(0.000166248, 1)).toBe("$0.0001662");
+  });
+});
+
+describe("formatNumber", () => {
+  it("returns fallback for nullish / non-finite input", () => {
+    expect(formatNumber(undefined)).toBe("—");
+    expect(formatNumber(null)).toBe("—");
+    expect(formatNumber(Number.NaN)).toBe("—");
+    expect(formatNumber(Infinity)).toBe("—");
+    expect(formatNumber(-Infinity)).toBe("—");
+    expect(formatNumber(undefined, "n/a")).toBe("n/a");
+  });
+
+  it('renders exactly 0 as "0"', () => {
+    expect(formatNumber(0)).toBe("0");
+    expect(formatNumber(-0)).toBe("0");
+  });
+
+  it("groups thousands with up to 4 fraction digits for |n| >= 1", () => {
+    expect(formatNumber(1234)).toBe("1,234");
+    expect(formatNumber(1234.56789)).toBe("1,234.5679");
+    expect(formatNumber(1.2345)).toBe("1.2345");
+  });
+
+  it("keeps 4 significant digits for 0 < |n| < 1 instead of collapsing to 0", () => {
+    // These are the exact values from the live sub-milli-TAO bug reports --
+    // Intl's bare 3-fraction-digit default rendered every one of these as "0".
+    expect(formatNumber(0.2985)).toBe("0.2985");
+    expect(formatNumber(0.000166248)).toBe("0.0001662");
+    expect(formatNumber(0.00003)).toBe("0.00003");
+    expect(formatNumber(0.000191022)).toBe("0.000191");
+    expect(formatNumber(0.000000001)).toBe("0.000000001");
+  });
+
+  it("preserves sign while tiering by magnitude", () => {
+    expect(formatNumber(-0.000166248)).toBe("-0.0001662");
+  });
+
+  it("keeps the integer path byte-identical (400+ call sites: blocks, counts, ages)", () => {
+    expect(formatNumber(8739335)).toBe("8,739,335");
+    expect(formatNumber(1234)).toBe("1,234");
   });
 });
 
