@@ -500,7 +500,8 @@ vi.mock("postgres", () => ({
   },
 }));
 
-const { default: worker } = await import("../workers/data-api.ts");
+const { default: worker, REALIZED_RETURN_BASELINE_TOLERANCE_DAYS } =
+  await import("../workers/data-api.ts");
 const NEURONS_SYNC_SECRET = "test-neurons-sync-secret";
 const NEURON_DAILY_BACKFILL_SECRET = "test-neuron-daily-backfill-secret";
 const ROLLUP_SYNC_SECRET = "test-rollup-sync-secret";
@@ -2328,6 +2329,124 @@ test("GET /api/v1/validators/:hotkey carries realized_return_* scoped to that ho
   expect(body.realized_return_1m).toBe(0); // (1500-1500)/1500 -- confirmed zero
   // The detail route scopes the baseline scan to the requested hotkey.
   expect(queryText()).toMatch(/AND hotkey = \?/);
+});
+
+test("the realized-return baseline tolerance is a named constant in 1-3 days (#8837)", () => {
+  expect(REALIZED_RETURN_BASELINE_TOLERANCE_DAYS).toBeGreaterThanOrEqual(1);
+  expect(REALIZED_RETURN_BASELINE_TOLERANCE_DAYS).toBeLessThanOrEqual(3);
+});
+
+test("GET /api/v1/validators bounds every baseline window's snapshot_date on both ends (#8837)", async () => {
+  mockRows.current = [
+    {
+      netuid: 7,
+      uid: 3,
+      hotkey: "5Hot",
+      coldkey: "5Cold",
+      validator_trust: "0.8",
+      emission_tao: "1.23",
+      stake_tao: "1000",
+      block_number: "5000000",
+      captured_at: "1780000000000",
+    },
+  ];
+  realizedBaselineState.queue = [[], [], []];
+  const dateFor = (daysBack: number) =>
+    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+  // Same shape the fix applies to each of d1/d7/d30: an upper bound at the
+  // window's own cutoff, and a lower bound tolerance days further back --
+  // never a one-sided "everything at or before" scan (#8837).
+  const expectedBounds = [
+    {
+      cutoff: dateFor(1),
+      floor: dateFor(1 + REALIZED_RETURN_BASELINE_TOLERANCE_DAYS),
+    },
+    {
+      cutoff: dateFor(7),
+      floor: dateFor(7 + REALIZED_RETURN_BASELINE_TOLERANCE_DAYS),
+    },
+    {
+      cutoff: dateFor(30),
+      floor: dateFor(30 + REALIZED_RETURN_BASELINE_TOLERANCE_DAYS),
+    },
+  ];
+  const res = await req("/api/v1/validators");
+  expect(res.status).toBe(200);
+  const baselineCalls = sqlCalls.filter((c) =>
+    /AS baseline_stake_tao/.test(c.text),
+  );
+  expect(baselineCalls.length).toBe(3);
+  baselineCalls.forEach((call, i) => {
+    // Both ends of the window are present, and both are inclusive
+    // (>= / <=, never a strict > or <) so a permitted snapshot exactly on
+    // the boundary date still counts as a valid baseline.
+    expect(call.text).toMatch(/snapshot_date <= \?/);
+    expect(call.text).toMatch(/snapshot_date >= \?/);
+    expect(call.values).toContain(expectedBounds[i].cutoff);
+    expect(call.values).toContain(expectedBounds[i].floor);
+  });
+});
+
+test("GET /api/v1/validators/:hotkey yields realized_return_1d: null (not a stale-baseline ratio) when the newest permitted snapshot predates the tolerance (#8837)", async () => {
+  mockRows.current = [
+    {
+      netuid: 7,
+      uid: 3,
+      hotkey: "5Hot",
+      coldkey: "5Cold",
+      validator_permit: true,
+      validator_trust: "0.8",
+      emission_tao: "1.23",
+      stake_tao: "5000",
+      block_number: "5000000",
+      captured_at: "1780000000000",
+    },
+  ];
+  // The validator lost its permit and regained it: its newest permitted
+  // neuron_daily row is far outside the d1 tolerance (the bounded query
+  // returns nothing for that window), but well inside the d7/d30 windows.
+  // Before the fix, the one-sided d1 query would have fallen back to this
+  // same 500 TAO row and published a +900% one-day return.
+  realizedBaselineState.queue = [
+    [],
+    [{ hotkey: "5Hot", baseline_stake_tao: 500 }],
+    [{ hotkey: "5Hot", baseline_stake_tao: 500 }],
+  ];
+  const res = await req("/api/v1/validators/5Hot");
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Row;
+  expect(body.realized_return_1d).toBeNull();
+  expect(body.realized_return_1d).not.toBe(9);
+  expect(body.realized_return_1w).toBe(9); // (5000-500)/500 -- a real 7d return, unaffected
+  expect(body.realized_return_1m).toBe(9);
+});
+
+test("GET /api/v1/validators/:hotkey still resolves a real ratio when a permitted snapshot sits on the window's own cutoff date (#8837)", async () => {
+  mockRows.current = [
+    {
+      netuid: 7,
+      uid: 3,
+      hotkey: "5Hot",
+      coldkey: "5Cold",
+      validator_permit: true,
+      validator_trust: "0.8",
+      emission_tao: "1.23",
+      stake_tao: "1100",
+      block_number: "5000000",
+      captured_at: "1780000000000",
+    },
+  ];
+  realizedBaselineState.queue = [
+    [{ hotkey: "5Hot", baseline_stake_tao: 1000 }],
+    [],
+    [],
+  ];
+  const res = await req("/api/v1/validators/5Hot");
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Row;
+  expect(body.realized_return_1d).toBe(0.1); // (1100-1000)/1000, normal case unaffected
 });
 
 const IDENTITY_ROW = {

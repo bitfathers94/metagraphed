@@ -3457,17 +3457,31 @@ async function loadSubnetTempos(sql: postgres.TransactionSql, env: Env) {
 // same way windowCutoffDate does.
 const REALIZED_RETURN_WINDOWS = { d1: 1, d7: 7, d30: 30 };
 
+// How many days *older* than a window's target cutoff a permitted neuron_daily
+// snapshot may still be and count as that window's baseline (#8837). neurons-sync
+// runs every minute (wrangler.data.jsonc), so a validator that holds its permit
+// writes a same-day snapshot; the only way the newest-permitted-row-at-or-before
+// scan in loadRealizedStakeBaselines below reaches back further than this is a
+// genuine gap -- a missed sync run, or the validator having lost its permit for
+// that stretch. 2 days absorbs one missed daily rollup (transient sync lag)
+// without reaching far enough back to let a real permit gap masquerade as a
+// same-day baseline; a hotkey with no permitted row inside the tolerance is a
+// real gap and must resolve to null, not an older number.
+export const REALIZED_RETURN_BASELINE_TOLERANCE_DAYS = 2;
+
 // Per-hotkey baseline total_stake_tao ~1d/1w/1m back from the neuron_daily
 // rollup, for the realized_return_* fields (#7228). For each window it takes
-// each hotkey's newest snapshot on-or-before (today − N days) and sums that
-// day's stake across every subnet membership (rao-precision is re-applied in
-// the builder); a hotkey whose oldest snapshot is newer than that cutoff is
-// simply absent, so its realized return for that window resolves to null ("no
-// figure", not "zero"). Same savepoint-isolated-failure shape as
-// loadSubnetTempos above: a neuron_daily read failure degrades every
-// realized_return_* to null rather than failing /api/v1/validators or
-// /api/v1/validators/:hotkey, or rolling back the enclosing transaction's
-// other queries. `hotkey` scopes the scan to the single-validator detail route.
+// each hotkey's newest snapshot within REALIZED_RETURN_BASELINE_TOLERANCE_DAYS
+// of (today − N days) -- never older -- and sums that day's stake across every
+// subnet membership (rao-precision is re-applied in the builder); a hotkey with
+// no permitted snapshot inside that two-sided window is simply absent, so its
+// realized return for that window resolves to null ("no figure", not "zero"),
+// even if an older permitted snapshot exists further back (#8837). Same
+// savepoint-isolated-failure shape as loadSubnetTempos above: a neuron_daily
+// read failure degrades every realized_return_* to null rather than failing
+// /api/v1/validators or /api/v1/validators/:hotkey, or rolling back the
+// enclosing transaction's other queries. `hotkey` scopes the scan to the
+// single-validator detail route.
 async function loadRealizedStakeBaselines(
   sql: postgres.TransactionSql,
   { hotkey = null }: { hotkey?: string | null },
@@ -3481,6 +3495,13 @@ async function loadRealizedStakeBaselines(
           const cutoff = new Date(Date.now() - days * ANALYTICS_DAY_MS)
             .toISOString()
             .slice(0, 10);
+          const floor = new Date(
+            Date.now() -
+              (days + REALIZED_RETURN_BASELINE_TOLERANCE_DAYS) *
+                ANALYTICS_DAY_MS,
+          )
+            .toISOString()
+            .slice(0, 10);
           type BaselineRow = {
             hotkey: NeuronDaily["hotkey"];
             baseline_stake_tao: string | null;
@@ -3492,6 +3513,7 @@ async function loadRealizedStakeBaselines(
               FROM neuron_daily
               WHERE validator_permit = TRUE AND hotkey = ${hotkey}
                 AND snapshot_date <= ${cutoff}
+                AND snapshot_date >= ${floor}
               GROUP BY hotkey, snapshot_date
             )
             SELECT DISTINCT ON (hotkey) hotkey, stake_tao AS baseline_stake_tao
@@ -3501,6 +3523,7 @@ async function loadRealizedStakeBaselines(
               SELECT hotkey, snapshot_date, SUM(stake_tao) AS stake_tao
               FROM neuron_daily
               WHERE validator_permit = TRUE AND snapshot_date <= ${cutoff}
+                AND snapshot_date >= ${floor}
               GROUP BY hotkey, snapshot_date
             )
             SELECT DISTINCT ON (hotkey) hotkey, stake_tao AS baseline_stake_tao

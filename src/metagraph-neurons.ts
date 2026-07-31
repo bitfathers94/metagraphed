@@ -454,7 +454,9 @@ function finalizeApy(acc: ApyAccumulator): Row {
 // object the worker resolves from neuron_daily (see loadRealizedStakeBaselines
 // in workers/data-api.ts); the values are the human window labels the field
 // names carry (1d/1w/1m). A cold/absent baseline (D1 fallback, or a hotkey with
-// no neuron_daily row far enough back) leaves that window's return null.
+// no permitted neuron_daily row within REALIZED_RETURN_BASELINE_TOLERANCE_DAYS
+// of the target date -- e.g. a lapsed permit, #8837) leaves that window's
+// return null.
 const REALIZED_RETURN_FIELDS: Array<[string, string]> = [
   ["d1", "realized_return_1d"],
   ["d7", "realized_return_1w"],
@@ -464,15 +466,18 @@ const REALIZED_RETURN_FIELDS: Array<[string, string]> = [
 // One window's realized return on staked capital (#7228): the rao-exact
 // fractional change between a validator's current total stake (`currentStakeRao`,
 // already summed across every subnet membership in rao-BigInt space) and its
-// total stake at the neuron_daily snapshot ~N days ago (`baselineStakeTao`, the
-// summed baseline the worker passes in). Unlike apy_estimate (a forward-looking
-// annualized projection from one epoch's emission rate), this is backward-
-// looking over an actually-elapsed window -- it captures both emission-driven
-// compounding and net delegation flow, since a two-snapshot comparison cannot
-// separate them. Null (never 0) when no neuron_daily row exists far enough back
-// (baselineStakeTao null) or the baseline stake is non-positive (a return is
-// undefined with nothing staked) -- "no realized figure" vs. "confirmed zero
-// return", mirroring finalizeApy's null-never-fabricated convention.
+// total stake at the newest permitted neuron_daily snapshot within
+// REALIZED_RETURN_BASELINE_TOLERANCE_DAYS of ~N days ago (`baselineStakeTao`,
+// the summed baseline the worker passes in). Unlike apy_estimate (a forward-
+// looking annualized projection from one epoch's emission rate), this is
+// backward-looking over an actually-elapsed window -- it captures both
+// emission-driven compounding and net delegation flow, since a two-snapshot
+// comparison cannot separate them. Null (never 0) when no permitted
+// neuron_daily row exists within tolerance of that target date -- e.g. a
+// validator that regained a lapsed permit (baselineStakeTao null, #8837) --
+// or the baseline stake is non-positive (a return is undefined with nothing
+// staked) -- "no realized figure" vs. "confirmed zero return", mirroring
+// finalizeApy's null-never-fabricated convention.
 function realizedReturn(
   currentStakeRao: bigint,
   baselineStakeTao: number | null,
