@@ -52,6 +52,7 @@ import {
   buildAccountSubnets,
   buildAccountHistory,
   ACCOUNT_EVENT_SUMMARY_SCAN_CAP,
+  ACCOUNT_ACTIVITY_MODULE_WINDOW,
   SUBNET_EVENT_SUMMARY_WINDOWS,
   DEFAULT_SUBNET_EVENT_SUMMARY_WINDOW,
   SUBNET_EVENT_SUMMARY_RECENT_LIMIT_DEFAULT,
@@ -7034,11 +7035,11 @@ async function dispatchDataApiRequest(
           >`
           SELECT netuid, uid, stake_tao, validator_permit, active FROM neurons
           WHERE hotkey = ${ss58} ORDER BY stake_tao DESC, netuid ASC`;
-          // Both subqueries lead ORDER BY with observed_at (same chunk-
-          // exclusion fix as above) -- each caps to the most recent 1000
-          // extrinsics before aggregating, so which 1000 rows SQL fetches
-          // is what matters, not their fetch order (the outer aggregates
-          // don't care about row order at all).
+          // tx_count/last_tx_block/last_tx_at/total_fee_tao are order-independent
+          // aggregates over the signer's ENTIRE extrinsic history -- no LIMIT, so
+          // there is no "which rows" to choose and no ORDER BY to shape it.
+          // idx_extrinsics_signer_observed / idx_extrinsics_signer_block both
+          // lead on signer, so the predicate is index-backed.
           const activityRows = await sql<
             {
               tx_count: string;
@@ -7048,13 +7049,18 @@ async function dispatchDataApiRequest(
             }[]
           >`
           SELECT COUNT(*) AS tx_count, MAX(block_number) AS last_tx_block, MAX(observed_at) AS last_tx_at, SUM(fee_tao) AS total_fee_tao
-          FROM (SELECT block_number, observed_at, fee_tao FROM extrinsics WHERE signer = ${ss58} ORDER BY observed_at DESC, block_number DESC, extrinsic_index DESC LIMIT 1000) sub`;
+          FROM extrinsics WHERE signer = ${ss58}`;
+          // modules_called stays a recency breakdown, not a total -- it caps to
+          // the newest ACCOUNT_ACTIVITY_MODULE_WINDOW extrinsics before grouping,
+          // a different cost profile than a GROUP BY over all-time history.
+          // modules_called_capped (derived from the now-uncapped tx_count above)
+          // tells a consumer when this window covers only part of that history.
           const moduleRows = await sql<
             (Pick<Extrinsics, "call_module"> & { count: string })[]
           >`
           SELECT call_module, COUNT(*) AS count FROM (
             SELECT call_module FROM extrinsics WHERE signer = ${ss58}
-            ORDER BY observed_at DESC, block_number DESC, extrinsic_index DESC LIMIT 1000
+            ORDER BY observed_at DESC, block_number DESC, extrinsic_index DESC LIMIT ${ACCOUNT_ACTIVITY_MODULE_WINDOW}
           ) sub GROUP BY call_module ORDER BY count DESC, call_module ASC LIMIT 10`;
           const scanned = scanRows.length;
           const capped = scanRows.slice(0, ACCOUNT_EVENT_SUMMARY_SCAN_CAP);

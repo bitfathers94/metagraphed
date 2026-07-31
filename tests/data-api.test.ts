@@ -1440,6 +1440,40 @@ test("GET /api/v1/accounts/:ss58 shapes the cross-subnet summary from two merged
   expect(text).not.toContain("WHERE (hotkey =");
 });
 
+test("GET /api/v1/accounts/:ss58's activity aggregate has no LIMIT 1000 subquery -- it scans the signer's entire extrinsic history", async () => {
+  mockQueue.current = [
+    [], // SET
+    [], // SET LOCAL statement_timeout
+    [], // hotkeyScanRows
+    [], // coldkeyScanRows
+    [], // regRows
+    [
+      {
+        tx_count: "40000",
+        last_tx_block: 8586300,
+        last_tx_at: "1783600000000",
+        total_fee_tao: "12.5",
+      },
+    ], // activityRows
+    [{ call_module: "SubtensorModule", count: "1000" }], // moduleRows
+  ];
+  const res = await req(`/api/v1/accounts/${SS58}`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Row;
+  expect(body.activity.tx_count).toBe(40000);
+  expect(body.activity.modules_called_capped).toBe(true);
+  // The activity aggregate query itself: an all-time COUNT/MAX/SUM directly
+  // over `extrinsics`, not a LIMIT-1000 subquery -- distinct from the
+  // modules_called breakdown, which keeps its own bounded window below.
+  const activityQuery = queryText()
+    .split("SELECT call_module, COUNT(*) AS count")[0]
+    .split("SELECT COUNT(*) AS tx_count")
+    .at(-1)!;
+  expect(activityQuery).toContain("FROM extrinsics WHERE signer =");
+  expect(activityQuery).not.toContain("LIMIT");
+  expect(activityQuery).not.toContain("ORDER BY");
+});
+
 test("GET /api/v1/accounts/:ss58 ignores null netuid events in subnet_count", async () => {
   mockQueue.current = [
     [], // SET

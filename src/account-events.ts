@@ -305,24 +305,35 @@ export interface AccountActivity {
   last_tx_at: string | null;
   total_fee_tao: number | null;
   modules_called: AccountActivityModuleCount[];
+  modules_called_capped: boolean;
 }
+
+// Bound the account-activity module breakdown: modules_called is a GROUP BY
+// over only the account's newest ACCOUNT_ACTIVITY_MODULE_WINDOW extrinsics, so
+// modules_called_capped flags when that breakdown covers less than the
+// account's (now all-time) tx_count.
+export const ACCOUNT_ACTIVITY_MODULE_WINDOW = 1000;
 
 // Cross-subnet account summary: event-history aggregates (from account_events,
 // matched by hotkey OR coldkey) joined to current registrations (from neurons,
 // by hotkey). `agg` is the single aggregate row; kinds/registrations/recent are
 // row arrays. Null-safe on a cold/absent store (returns a schema-stable zero).
-// Signing-activity sub-object (#1847) from the extrinsics tier, by signer. These
-// are hot-window aggregates (retention-bounded), not all-time. Matched by signer
-// only — an account queried by a key that did not sign won't line up with the
-// account_events aggregates (which match hotkey OR coldkey). Null-safe on a cold
-// store: tx_count 0, others null, modules_called [].
+// Signing-activity sub-object (#1847) from the extrinsics tier, by signer.
+// tx_count/last_tx_block/last_tx_at/total_fee_tao are genuine all-time
+// aggregates over every extrinsic the signer has sent; only modules_called
+// stays a newest-ACCOUNT_ACTIVITY_MODULE_WINDOW breakdown (modules_called_capped
+// flags when it is incomplete). Matched by signer only — an account queried by
+// a key that did not sign won't line up with the account_events aggregates
+// (which match hotkey OR coldkey). Null-safe on a cold store: tx_count 0,
+// others null, modules_called [], modules_called_capped false.
 export function formatAccountActivity(
   agg: Record<string, unknown> | null | undefined,
   modules: Array<Record<string, unknown>> | null | undefined,
 ): AccountActivity {
   const a = agg || {};
+  const txCount = toBlockNumber(a.tx_count) ?? 0;
   return {
-    tx_count: toBlockNumber(a.tx_count) ?? 0,
+    tx_count: txCount,
     last_tx_block: toBlockNumber(a.last_tx_block),
     last_tx_at: toIso(a.last_tx_at),
     total_fee_tao: toTaoOrNull(a.total_fee_tao),
@@ -332,6 +343,7 @@ export function formatAccountActivity(
         call_module: m.call_module as string,
         count: toBlockNumber(m.count) ?? 0,
       })),
+    modules_called_capped: txCount > ACCOUNT_ACTIVITY_MODULE_WINDOW,
   };
 }
 

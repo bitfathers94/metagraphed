@@ -12,9 +12,9 @@
 // formatter. Fixed to required-but-nullable for uid/stake_tao, matching
 // reality. Same reasoning applies to AccountActivity: the hand-edited
 // component only required modules_called/tx_count, but
-// formatAccountActivity() always returns all 5 keys; this file's
-// AccountActivitySchema already modeled all 5 as required, so no change was
-// needed there.
+// formatAccountActivity() always returns all keys (6, since
+// modules_called_capped was added); this file's AccountActivitySchema models
+// them all as required.
 //
 // Bucket (c): timestamp fields (first_seen_at/last_seen_at/last_tx_at) drop
 // format:date-time in favor of plain z.string().nullable(), matching this
@@ -72,6 +72,7 @@ const AccountActivitySchema = z
         })
         .strict(),
     ),
+    modules_called_capped: z.boolean(),
   })
   .strict();
 
