@@ -2069,6 +2069,16 @@ describe("batch 6 (#8060) route artifact schemas parse real builder output", () 
           extrinsic_index: 15,
           observed_at: 1784965824000,
         },
+        {
+          block_number: 8587756,
+          event_index: 2,
+          pallet: "SubtensorModule",
+          method: "TimelockedWeightsRevealed",
+          args: [78, "5Fk765B4CRBekwErwE5VxvveWhHztHSfsnsLt8cbDayDWsuk"],
+          phase: "ApplyExtrinsic",
+          extrinsic_index: 50,
+          observed_at: 100,
+        },
       ],
     };
     const parsed = ChainEventsFeedArtifactSchema.parse(data);
@@ -2629,7 +2639,7 @@ describe("batch 7 (#8061) route artifact schemas parse real builder output", () 
   test("block-chain-events: ArtifactSchema.parse(<live block chain-events shape>) succeeds", () => {
     const data = {
       block_number: 8697469,
-      count: 2,
+      count: 3,
       events: [
         {
           event_index: 328,
@@ -2658,6 +2668,15 @@ describe("batch 7 (#8061) route artifact schemas parse real builder output", () 
           phase: "ApplyExtrinsic",
           extrinsic_index: 15,
           observed_at: 1784965824000,
+        },
+        {
+          event_index: 2,
+          pallet: "SubtensorModule",
+          method: "TimelockedWeightsRevealed",
+          args: [78, "5Fk765B4CRBekwErwE5VxvveWhHztHSfsnsLt8cbDayDWsuk"],
+          phase: "ApplyExtrinsic",
+          extrinsic_index: 50,
+          observed_at: 100,
         },
       ],
     };
