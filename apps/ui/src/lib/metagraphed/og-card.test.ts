@@ -8,6 +8,34 @@ import {
   ogImageMeta,
 } from "./og-card";
 import { OG_CARD_VERSION, OG_LIMITS } from "./og-card-limits";
+import { clampOgText } from "./og-display-text";
+
+describe("OG display text boundaries", () => {
+  it("preserves ordinary word cuts while normalizing and keeping supplementary characters intact", () => {
+    expect(clampOgText(null, 10)).toBe("");
+    expect(clampOgText("  A normal title  ", 20)).toBe("A normal title");
+    expect(clampOgText("A normal title is longer", 18)).toBe("A normal title…");
+    expect(clampOgText("A𠮷字漢", 3)).toBe("A𠮷…");
+    expect(clampOgText("한글", 2)).toBe("한글");
+    expect(clampOgText("界".repeat(80), 80)).toBe("界".repeat(80));
+  });
+  it("normalizes all metadata image fields before a budget can split their identity", () => {
+    const url = new URL(
+      buildOgImageUrl({
+        title: "A".repeat(108) + "𠮷漢字",
+        subtitle: "한글",
+        identifier: "A".repeat(78) + "𠮷漢字",
+        stats: [{ label: "한", value: "글" }],
+      }),
+    );
+    expect(url.searchParams.get("subtitle")).toBe("한글");
+    expect(url.searchParams.get("stat1")).toBe("한");
+    expect(url.searchParams.get("stat1v")).toBe("글");
+    expect(url.searchParams.get("title")).toBe("A".repeat(108) + "𠮷…");
+    expect(url.searchParams.get("identifier")).toBe("A".repeat(78) + "𠮷…");
+    for (const value of url.searchParams.values()) expect(value).not.toMatch(/[\uD800-\uDFFF]/u);
+  });
+});
 
 // The route → card adapters (#11204). Each one exists because the obvious
 // reduction threw away the better answer; the tests below pin the case that
@@ -167,7 +195,7 @@ describe("buildOgImageUrl", () => {
     expect(url.searchParams.get("stat1v")).toHaveLength(OG_LIMITS.statValue);
   });
 
-  it("fits a wide identifier into the remaining encoded query budget", () => {
+  it("preserves a wide identifier within the encoded query budget", () => {
     const input = {
       title: "界".repeat(110),
       subtitle: "界".repeat(70),
@@ -178,8 +206,7 @@ describe("buildOgImageUrl", () => {
     expect(url.search.length).toBeLessThanOrEqual(OG_LIMITS.query);
     expect(url.searchParams.get("title")).toBe(input.title);
     expect(url.searchParams.get("subtitle")).toBe(input.subtitle);
-    expect(url.searchParams.get("identifier")!.length).toBeLessThan(80);
-    expect(url.searchParams.get("identifier")).toMatch(/…$/);
+    expect(url.searchParams.get("identifier")).toBe(input.identifier);
     expect(url.searchParams.get("identifier")).not.toContain("�");
   });
 
@@ -189,21 +216,25 @@ describe("buildOgImageUrl", () => {
     // worst legitimate card to 548 characters against a 512 cap.
     const url = new URL(
       buildOgImageUrl({
-        title: "t".repeat(OG_LIMITS.title),
-        subtitle: "s".repeat(OG_LIMITS.subtitle),
-        eyebrow: "e".repeat(OG_LIMITS.eyebrow),
-        identifier: "界".repeat(OG_LIMITS.identifier),
-        logoPath: `/logos/cache/${"c".repeat(64)}.png`,
+        title: "𠮷".repeat(OG_LIMITS.title),
+        subtitle: "𠮷".repeat(OG_LIMITS.subtitle),
+        eyebrow: "𠮷".repeat(OG_LIMITS.eyebrow),
+        identifier: "𠮷".repeat(OG_LIMITS.identifier),
+        logoPath: `/logos/cache/${"c".repeat(64)}.webp`,
         logoHost: `${"h".repeat(OG_LIMITS.logoHost - 4)}.com`,
-        status: "unknown",
+        status: "degraded",
+        accent: "agent",
         entity: true,
         stats: [1, 2, 3].map(() => ({
-          label: "l".repeat(OG_LIMITS.statLabel),
-          value: "v".repeat(OG_LIMITS.statValue),
+          label: "𠮷".repeat(OG_LIMITS.statLabel),
+          value: "𠮷".repeat(OG_LIMITS.statValue),
         })),
       }),
     );
+    expect(url.search.length).toBeGreaterThan(5616);
+    expect(url.search.length).toBeLessThan(6000);
     expect(url.search.length).toBeLessThanOrEqual(OG_LIMITS.query);
+    expect(Array.from(url.searchParams.get("identifier")!)).toHaveLength(OG_LIMITS.identifier);
   });
 });
 

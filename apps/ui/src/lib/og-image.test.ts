@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OG_WORDMARK_SVG } from "./metagraphed/og-wordmark";
-import { OG_CARD_VERSION } from "./metagraphed/og-card-limits";
+import { buildOgImageUrl } from "./metagraphed/og-card";
+import { OG_CARD_VERSION, OG_LIMITS } from "./metagraphed/og-card-limits";
 import { parseDesignTokens } from "../components/metagraphed/design/parse-design-tokens";
 
 import {
@@ -59,6 +60,18 @@ describe("sanitizeText", () => {
 });
 
 describe("normalizeTitle", () => {
+  it("normalizes display Jamo and never splits supplementary Han at a text boundary", () => {
+    expect(normalizeTitle("한글")).toBe("한글");
+    for (const text of ["A".repeat(108) + "𠮷漢字", "𠮷".repeat(111)]) {
+      const title = normalizeTitle(text);
+      expect(Array.from(title)).toHaveLength(110);
+      expect(title).not.toMatch(/[\uD800-\uDFFF]/u);
+      expect(title.endsWith("…")).toBe(true);
+    }
+    expect(monogramFor("A𠮷")).toBe("A𠮷");
+    expect(monogramFor("𠮷 字")).toBe("𠮷字");
+    expect(monogramFor("한글")).toBe("한글");
+  });
   it("falls back to the default title when the param is absent or blank", () => {
     expect(normalizeTitle(null)).toBe("Metagraphed");
     expect(normalizeTitle("")).toBe("Metagraphed");
@@ -214,6 +227,28 @@ describe("titleFontSize (#8489)", () => {
 });
 
 describe("renderCardMarkup (#8489)", () => {
+  it("adds the same required families to every explicit font role, including monograms", () => {
+    const markup = renderCardMarkup({
+      title: "A𠮷",
+      subtitle: "かなカナー",
+      eyebrow: null,
+      identifier: "漢字",
+      entity: true,
+      stats: [{ label: "한", value: "글" }],
+    });
+    for (const [, family] of markup.matchAll(/font-family:([^;]+);/g))
+      expect(family).toContain("'Noto Sans JP','Noto Sans SC','Noto Sans KR'");
+    expect(glyphsForMarkup(markup)).toContain("한");
+    expect(glyphsForMarkup(markup)).not.toContain("ᄒ");
+    expect(markup).toContain(">A𠮷<");
+    const ordinary = renderCardMarkup({
+      title: "Latin · τ",
+      subtitle: "Data",
+      eyebrow: null,
+      stats: [],
+    });
+    expect(ordinary).not.toContain("Noto Sans");
+  });
   it("omits whitespace flex children without removing spaces from visible copy", () => {
     const markup = renderCardMarkup({
       title: "Two words",
@@ -807,6 +842,38 @@ describe("font subset request (#11204) — the bug that painted three tofu boxes
 });
 
 describe("loadCardFont (#11204) — we own the two fetches, not workers-og", () => {
+  it("rejects unsafe font sources and redirects before following them", async () => {
+    for (const source of [
+      "http://fonts.gstatic.com/font.ttf",
+      "https://example.com/font.ttf",
+      "https://user@fonts.gstatic.com/font.ttf",
+      "https://fonts.gstatic.com:444/font.ttf",
+    ]) {
+      const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.redirect).toBe("manual");
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        return new Response(`src: url(${source}) format('truetype')`);
+      });
+      await expect(loadCardFont("Unsafe source " + source, 500, "abc", fetchImpl)).rejects.toThrow(
+        /font source/,
+      );
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    }
+  });
+  it("rejects CSS and binary redirects without following their location", async () => {
+    for (const at of [1, 2]) {
+      let calls = 0;
+      const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.redirect).toBe("manual");
+        calls++;
+        return calls === at
+          ? new Response(null, { status: 302, headers: { location: "https://example.com/font" } })
+          : new Response("src: url(https://fonts.gstatic.com/font.ttf) format('truetype')");
+      });
+      await expect(loadCardFont("Redirect " + at, 500, "abc", fetchImpl)).rejects.toThrow(/302/);
+      expect(fetchImpl).toHaveBeenCalledTimes(at);
+    }
+  });
   const truetypeCss = (url: string) =>
     `@font-face {\n  font-family: 'X';\n  src: url(${url}) format('truetype');\n}`;
 
@@ -1005,9 +1072,28 @@ describe("static social-preview recovery", () => {
     expect(method?.status).toBe(405);
     expect(method?.headers.get("allow")).toBe("GET, HEAD");
     const long = await handleOgImage(
-      new Request(`https://metagraph.sh/og?title=${"x".repeat(3000)}`),
+      new Request(`https://metagraph.sh/og?title=${"x".repeat(OG_LIMITS.query)}`),
     );
     expect(long?.status).toBe(414);
+    const maximum = buildOgImageUrl({
+      title: "𠮷".repeat(OG_LIMITS.title),
+      subtitle: "𠮷".repeat(OG_LIMITS.subtitle),
+      eyebrow: "𠮷".repeat(OG_LIMITS.eyebrow),
+      identifier: "𠮷".repeat(OG_LIMITS.identifier),
+      stats: [1, 2, 3].map(() => ({
+        label: "𠮷".repeat(OG_LIMITS.statLabel),
+        value: "𠮷".repeat(OG_LIMITS.statValue),
+      })),
+    });
+    expect(new URL(maximum).search.length).toBeGreaterThan(2048);
+    expect((await handleOgImage(new Request(maximum, { method: "HEAD" })))?.status).toBe(200);
+    const exactlyBounded = `https://metagraph.sh/og?title=${"x".repeat(OG_LIMITS.query - 7)}`;
+    expect((await handleOgImage(new Request(exactlyBounded, { method: "HEAD" })))?.status).toBe(
+      200,
+    );
+    expect(
+      (await handleOgImage(new Request(exactlyBounded + "x", { method: "HEAD" })))?.status,
+    ).toBe(414);
     const head = await handleOgImage(new Request("https://metagraph.sh/og", { method: "HEAD" }));
     expect(head?.status).toBe(200);
     expect(head?.headers.get("content-type")).toBe("image/png");
@@ -1137,6 +1223,19 @@ describe("edge social-preview recovery", () => {
       expect.objectContaining({ name: "Geist", weight: 700 }),
     );
     expect(config.fonts).toContainEqual(expect.objectContaining({ name: "Inter", weight: 700 }));
+  });
+
+  it("does not render or cache a CJK card when only the Latin faces are usable", async () => {
+    const { module, render, cache } = await setup();
+    const response = await module.handleOgImage(new Request("https://metagraph.sh/og?title=漢字"), {
+      ASSETS: { fetch: assetFetch() },
+    });
+    expect(new Uint8Array(await response!.arrayBuffer())).toEqual(fallbackBytes);
+    expect(response?.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(render).not.toHaveBeenCalled();
+    expect(cache.put.mock.calls.some(([request]) => new URL(request.url).pathname === "/og")).toBe(
+      false,
+    );
   });
 
   it("serves the independent asset after a rasterizer exception", async () => {
