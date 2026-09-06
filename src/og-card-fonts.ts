@@ -1,4 +1,9 @@
 import { cardGlyphs } from "./og-card-style.ts";
+import { createCjkFontLoader } from "./og-cjk-fonts.ts";
+import { registerModuleStateReset } from "./module-state-registry.ts";
+
+const cjkFonts = createCjkFontLoader();
+registerModuleStateReset("src/og-card-fonts.ts", cjkFonts.clear);
 
 export const CARD_FONT_FACES = [
   { name: "Geist", weight: 500 },
@@ -15,7 +20,7 @@ export async function loadCardFonts(markup: string) {
   // Encode the entire text parameter. A literal %, &, or + in registry copy
   // must not alter the font subset query or omit a painted Unicode glyph.
   const text = [...new Set([...cardGlyphs(markup)])].join("");
-  return Promise.all(
+  const latin = Promise.all(
     CARD_FONT_FACES.map(async (face) => {
       const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(face.name)}:wght@${face.weight}&text=${encodeURIComponent(text)}`;
       const css = await fetch(cssUrl, {
@@ -55,4 +60,6 @@ export async function loadCardFonts(markup: string) {
       };
     }),
   );
+  const fonts = await Promise.all([latin, cjkFonts.load(text)]);
+  return fonts.flat();
 }

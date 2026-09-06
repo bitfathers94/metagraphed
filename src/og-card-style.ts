@@ -1,5 +1,10 @@
 // Renderer-only literals mirror the site's canonical dark tokens. Tests compare
 // them with ui-kit CSS; this module has no browser or rendering dependencies.
+import {
+  cardFontFamily,
+  cjkFontPlan,
+  normalizeCardDisplayText,
+} from "./og-cjk-fonts.ts";
 export const OG_THEME = {
   canvas: "#161616",
   layer: "#1f1f1f",
@@ -50,7 +55,10 @@ export const BRAND_GRAPHIC_DATA_URI =
 
 /** Text nodes only: remove tag delimiters; neither renderer decodes entities. */
 export function cardLabel(value: string, limit: number): string {
-  const text = value.replace(/[<>]/g, "").replace(/\s+/g, " ").trim();
+  const text = normalizeCardDisplayText(value)
+    .replace(/[<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const chars = Array.from(text);
   return chars.length > limit ? chars.slice(0, limit - 1).join("") + "…" : text;
 }
@@ -77,12 +85,28 @@ export function cardTitleLines(
   let remaining = Array.from(title);
   const lines: string[] = [];
   while (remaining.length) {
-    if (remaining.length <= budget || lines.length === maxLines - 1) {
-      lines.push(cardLabel(remaining.join(""), budget));
+    // Noto's CJK letters occupy a full em. A Latin-only character budget lets
+    // Satori wrap these explicit lines again and pushes the facts into the
+    // footer. Two units is conservative; the Latin path keeps its exact cut.
+    let end = 0;
+    let units = 0;
+    while (end < remaining.length) {
+      const glyphUnits =
+        /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u.test(
+          remaining[end],
+        )
+          ? 2
+          : 1;
+      if (units + glyphUnits > budget) break;
+      units += glyphUnits;
+      end++;
+    }
+    if (remaining.length <= end || lines.length === maxLines - 1) {
+      lines.push(cardLabel(remaining.join(""), end));
       break;
     }
-    const boundary = remaining.slice(0, budget).lastIndexOf(" ");
-    const end = boundary > budget / 2 ? boundary : budget;
+    const boundary = remaining.slice(0, end).lastIndexOf(" ");
+    end = boundary > end / 2 ? boundary : end;
     lines.push(remaining.slice(0, end).join(""));
     remaining = Array.from(remaining.slice(end).join("").trim());
   }
@@ -92,6 +116,22 @@ export function cardTitleLines(
 /** The landing and entity cards share artwork, without sharing their data reads. */
 export function renderCardLayout(card: CardLayout): string {
   const title = cardLabel(card.title, CARD_LIMITS.title);
+  const plan = cjkFontPlan(
+    [
+      title,
+      cardLabel(card.identifier ?? "", CARD_LIMITS.eyebrow),
+      cardLabel(card.subtitle ?? "", 90),
+      cardLabel(card.mark ?? "", CARD_LIMITS.mark),
+      ...card.stats
+        .slice(0, 4)
+        .flatMap(({ label, value }) => [
+          cardLabel(label, CARD_LIMITS.statLabel),
+          cardLabel(value, CARD_LIMITS.statValue),
+        ]),
+    ].join(""),
+  );
+  const textFont = cardFontFamily("'Geist','Inter'", plan);
+  const monoFont = cardFontFamily("'Geist Mono','Inter'", plan);
   // Only the handler's inlined PNG bytes reach this attribute. No remote URL is
   // ever resolved by the layout, even if a caller supplies one accidentally.
   const logo =
@@ -103,7 +143,7 @@ export function renderCardLayout(card: CardLayout): string {
   const graphic = logo
     ? `<div style="display:flex;position:absolute;left:910px;top:224px;width:192px;height:192px;padding:16px;align-items:center;justify-content:center;background:#ffffff;border:1px solid ${OG_THEME.rule};border-radius:4px;"><img src="${logo}" width="158" height="158" style="width:158px;height:158px;object-fit:contain;" /></div>`
     : mark
-      ? `<div style="display:flex;position:absolute;left:874px;top:224px;width:258px;height:192px;align-items:center;justify-content:center;font-family:'Geist Mono','Inter';font-size:${markSize}px;font-weight:500;color:${OG_THEME.accent};">${mark}</div>`
+      ? `<div style="display:flex;position:absolute;left:874px;top:224px;width:258px;height:192px;align-items:center;justify-content:center;font-family:${monoFont};font-size:${markSize}px;font-weight:500;color:${OG_THEME.accent};">${mark}</div>`
       : card.entity
         ? ""
         : `<img src="${BRAND_GRAPHIC_DATA_URI}" width="258" height="155" style="position:absolute;left:874px;top:246px;width:258px;height:155px;" />`;
@@ -139,24 +179,24 @@ export function renderCardLayout(card: CardLayout): string {
           Math.floor((statWidth - 24) / (Math.max(value.length, 1) * 0.62)),
         ),
       );
-      return `<div style="display:flex;flex-direction:column;width:${statWidth}px;padding-right:18px;${index ? `border-left:1px solid ${OG_THEME.rule};padding-left:22px;` : ""}"><p style="display:block;margin:0;font-size:18px;line-height:1.2;color:${OG_THEME.muted};word-break:break-word;line-clamp:2;">${label}</p><p style="display:block;margin:0;font-family:'Geist Mono','Inter';font-size:${valueSize}px;font-weight:500;color:${OG_THEME.accent};line-height:1.2;margin-top:12px;word-break:break-all;line-clamp:2;">${value}</p></div>`;
+      return `<div style="display:flex;flex-direction:column;width:${statWidth}px;padding-right:18px;${index ? `border-left:1px solid ${OG_THEME.rule};padding-left:22px;` : ""}"><p style="display:block;margin:0;font-size:18px;line-height:1.2;color:${OG_THEME.muted};word-break:break-word;line-clamp:2;">${label}</p><p style="display:block;margin:0;font-family:${monoFont};font-size:${valueSize}px;font-weight:500;color:${OG_THEME.accent};line-height:1.2;margin-top:12px;word-break:break-all;line-clamp:2;">${value}</p></div>`;
     })
     .join("");
-  return `<div style="display:flex;position:relative;width:1200px;height:630px;background:${OG_THEME.canvas};color:${OG_THEME.ink};font-family:'Geist','Inter';overflow:hidden;">
+  return `<div style="display:flex;position:relative;width:1200px;height:630px;background:${OG_THEME.canvas};color:${OG_THEME.ink};font-family:${textFont};overflow:hidden;">
     <img src="${WORDMARK_DATA_URI}" alt="${WORDMARK}" width="244" height="34" style="position:absolute;left:64px;top:52px;width:244px;height:34px;" />
     <div style="display:flex;position:absolute;left:64px;top:${contentTop}px;width:${width}px;flex-direction:column;">
-      ${identifier && identifier !== title ? `<div style="display:flex;font-family:'Geist Mono','Inter';font-size:23px;color:${OG_THEME.accent};margin-bottom:20px;">${identifier}</div>` : ""}
+      ${identifier && identifier !== title ? `<div style="display:flex;font-family:${monoFont};font-size:23px;color:${OG_THEME.accent};margin-bottom:20px;">${identifier}</div>` : ""}
       ${cardTitleLines(title, width, titleSize, dense ? 2 : 3)
         .map(
           (line) =>
-            `<div style="display:flex;font-family:'Geist Mono','Inter';font-size:${titleSize}px;font-weight:500;line-height:1.14;letter-spacing:-3px;">${line}</div>`,
+            `<div style="display:flex;font-family:${monoFont};font-size:${titleSize}px;font-weight:500;line-height:1.14;letter-spacing:-3px;">${line}</div>`,
         )
         .join("")}
       ${card.subtitle ? `<p style="display:block;margin:0;max-width:${width}px;font-size:29px;font-weight:500;line-height:1.4;color:${OG_THEME.muted};margin-top:28px;word-break:break-word;line-clamp:2;">${cardLabel(card.subtitle, 90)}</p>` : ""}
       ${stats.length ? `<div style="display:flex;align-items:flex-start;margin-top:38px;">${statCells}</div>` : ""}
     </div>
     ${graphic}
-    <div style="display:flex;position:absolute;left:64px;bottom:46px;font-family:'Geist Mono','Inter';font-size:21px;font-weight:500;color:${OG_THEME.muted};">api.metagraph.sh</div>
+    <div style="display:flex;position:absolute;left:64px;bottom:46px;font-family:${monoFont};font-size:21px;font-weight:500;color:${OG_THEME.muted};">api.metagraph.sh</div>
   </div>`.replace(/>\s+</g, "><");
 }
 
